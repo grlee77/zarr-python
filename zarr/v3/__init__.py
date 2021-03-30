@@ -97,6 +97,7 @@ class BaseV3Store:
             assert set(v.keys()) == {
                 "zarr_format",
                 "metadata_encoding",
+                "metadata_key_suffix",
                 "extensions",
             }, "v is {}".format(v)
         elif key.endswith("/.group"):
@@ -120,6 +121,7 @@ class BaseV3Store:
             assert set(v.keys()) == {
                 "zarr_format",
                 "metadata_encoding",
+                "metadata_key_suffix",
                 "extensions",
             }, "v is {}".format(v)
         elif key.endswith(".array"):
@@ -322,6 +324,7 @@ class AsyncZarrProtocolV3:
         basic_info = {
             "zarr_format": "https://purl.org/zarr/spec/protocol/core/3.0",
             "metadata_encoding": "https://tools.ietf.org/html/rfc8259",
+            "metadata_key_suffix": ".json",
             "extensions": [],
         }
         try:
