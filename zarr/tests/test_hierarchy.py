@@ -29,15 +29,12 @@ from zarr.storage import (ABSStore, DBMStore, DirectoryStore, LMDBStore,
                           init_group)
 from zarr.util import InfoReporter
 from zarr.tests.util import skip_test_env_var
-from zarr import v3
-
-import zarr.v3.storage as v3storage
 
 
 # Async test need to be top-level.
 async def create_store():
     pytest.importorskip("redio")
-    from zarr.v3 import V2from3Adapter, SyncV3RedisStore
+    from zarr.v3 import SyncV3RedisStore
 
     # create a sync store for now as some Group methonds are sync.
     rs = SyncV3RedisStore()
