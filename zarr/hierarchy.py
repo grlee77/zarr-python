@@ -18,14 +18,6 @@ from zarr.creation import (
     zeros,
     zeros_like,
 )
-from zarr.util import (
-    InfoReporter,
-    TreeViewer,
-    is_valid_python_name,
-    nolock,
-    normalize_shape,
-    normalize_storage_path,
-)
 from zarr.errors import (
     ContainsArrayError,
     ContainsGroupError,
@@ -43,6 +35,14 @@ from zarr.storage import (
     listdir,
     rename,
     rmdir,
+)
+from zarr.util import (
+    InfoReporter,
+    TreeViewer,
+    is_valid_python_name,
+    nolock,
+    normalize_shape,
+    normalize_storage_path,
 )
 
 
