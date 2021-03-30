@@ -1,5 +1,5 @@
 from zarr.util import normalize_storage_path
-from zarr.errors import err_contains_array, err_contains_group
+from zarr.errors import ArrayNotFoundError, GroupNotFoundError
 
 
 async def init_group(store, overwrite=False, path=None, chunk_store=None):
@@ -39,9 +39,9 @@ async def _init_group_metadata(store, overwrite=False, path=None, chunk_store=No
         if chunk_store is not None:
             rmdir(chunk_store, path)
     elif await contains_array(store, path):
-        err_contains_array(path)
+        ArrayNotFoundError(path)
     elif contains_group(store, path):
-        err_contains_group(path)
+        GroupNotFoundError(path)
 
     # initialize metadata
     # N.B., currently no metadata properties are needed, however there may
