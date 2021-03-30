@@ -41,7 +41,7 @@ class BaseV3Store:
     Base utility class to create a v3-complient store with extra checks and utilities.
 
     It provides a number of default method implementation adding extra checks in
-    order to ensure the correctness fo the implmentation.
+    order to ensure the correctness of the implmentation.
     """
 
     _store_version = 3
@@ -50,16 +50,16 @@ class BaseV3Store:
     @staticmethod
     def _valid_key(key: str) -> bool:
         """
-        Verify that a key is confirm to the specification.
+        Verify that a key conforms to the specification.
 
-        A key us any string containing only character in the range a-z, A-Z,
-        0-9, or in the set /.-_ it will return True if that's the case, false
+        A key is any string containing only character in the range a-z, A-Z,
+        0-9, or in the set /.-_ it will return True if that's the case, False
         otherwise.
 
         In addition, in spec v3, keys can only start with the prefix meta/,
-        data/ or be exactly zarr.json. This should not be exposed to the
-        user, and is a store implmentation detail, so thie method will raise
-        a ValueError in that case.
+        data/ or be exactly zarr.json and should not end with /. This should
+        not be exposed to the user, and is a store implementation detail, so
+        this method will raise a ValueError in that case.
         """
         if sys.version_info > (3, 7):
             if not key.isascii():
@@ -73,7 +73,10 @@ class BaseV3Store:
             and (not key == "zarr.json")
         ):
             raise ValueError("keys starts with unexpected value: `{}`".format(key))
-        # todo likely more logics to add there.
+
+        if key.endswith('/'):
+            raise ValueError("keys may not end in /")
+
         return True
 
     async def async_get(self, key: str):
