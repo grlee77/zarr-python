@@ -2,6 +2,7 @@ import atexit
 import os
 import pickle
 import shutil
+import sys
 import tempfile
 import textwrap
 import unittest
