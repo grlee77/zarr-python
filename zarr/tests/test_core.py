@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import atexit
 import os
 import pickle
@@ -19,11 +18,22 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 from zarr.core import Array
 from zarr.meta import json_loads
 from zarr.n5 import N5Store, n5_keywords
-from zarr.storage import (ABSStore, DBMStore, DirectoryStore, LMDBStore,
-                          LRUStoreCache, NestedDirectoryStore, SQLiteStore,
-                          atexit_rmglob, atexit_rmtree, init_array, init_group)
+from zarr.storage import (
+    ABSStore,
+    DBMStore,
+    DirectoryStore,
+    LMDBStore,
+    LRUStoreCache,
+    NestedDirectoryStore,
+    SQLiteStore,
+    FSStore,
+    atexit_rmglob,
+    atexit_rmtree,
+    init_array,
+    init_group,
+)
 from zarr.util import buffer_size
-from zarr.tests.util import skip_test_env_var
+from zarr.tests.util import skip_test_env_var, have_fsspec
 
 
 # noinspection PyMethodMayBeStatic
@@ -139,9 +149,6 @@ class TestArray(unittest.TestCase):
             assert -1 == z.nbytes_stored
         except TypeError:
             pass
-
-        if hasattr(z.store, 'close'):
-            z.store.close()
 
     # noinspection PyStatementEffect
     def test_array_1d(self):
@@ -1185,12 +1192,12 @@ class TestArray(unittest.TestCase):
         data = np.array(greetings * 1000, dtype=object)
 
         z = self.create_array(shape=data.shape, dtype=object, object_codec=VLenUTF8())
-        z[0] = u'foo'
-        assert z[0] == u'foo'
-        z[1] = u'bar'
-        assert z[1] == u'bar'
-        z[2] = u'baz'
-        assert z[2] == u'baz'
+        z[0] = 'foo'
+        assert z[0] == 'foo'
+        z[1] = 'bar'
+        assert z[1] == 'bar'
+        z[2] = 'baz'
+        assert z[2] == 'baz'
         z[:] = data
         a = z[:]
         assert a.dtype == object
@@ -1340,7 +1347,8 @@ class TestArray(unittest.TestCase):
         if hasattr(z.store, 'close'):
             z.store.close()
 
-    def test_zero_d_iter(self):
+    def test_iteration_exceptions(self):
+        # zero d array
         a = np.array(1, dtype=int)
         z = self.create_array(shape=a.shape, dtype=int)
         z[...] = a
@@ -1350,6 +1358,27 @@ class TestArray(unittest.TestCase):
         with pytest.raises(TypeError):
             # noinspection PyStatementEffect
             list(z)
+
+        # input argument error handling
+        a = np.array((10, 10), dtype=int)
+        z = self.create_array(shape=a.shape, dtype=int)
+        z[...] = a
+
+        params = (
+            (-1, 0),
+            (0, -1),
+            (0.5, 1),
+            (0, 0.5)
+        )
+
+        for start, end in params:
+            with pytest.raises(ValueError):
+                # noinspection PyStatementEffect
+                list(z.islice(start, end))
+
+        # check behavior for start > end
+        assert [] == list(z.islice(6, 5))
+
         if hasattr(z.store, 'close'):
             z.store.close()
 
@@ -1374,6 +1403,30 @@ class TestArray(unittest.TestCase):
             a = np.arange(np.product(shape)).reshape(shape)
             z[:] = a
             for expect, actual in zip_longest(a, z):
+                assert_array_equal(expect, actual)
+            if hasattr(z.store, 'close'):
+                z.store.close()
+
+    def test_islice(self):
+        params = (
+            ((1,), (1,), 0, 1),
+            ((2,), (1,), 0, 1),
+            ((1,), (2,), 0, 1),
+            ((3,), (3,), 1, 2),
+            ((1000,), (100,), 150, 1050),
+            ((100,), (1000,), 25, 75),
+            ((1, 100), (1, 1), 0, 1),
+            ((100, 1), (3, 1), 56, 100),
+            ((100, 100), (10, 10), 13, 99),
+            ((10, 10, 10), (3, 3, 3), 2, 4),
+        )
+        for shape, chunks, start, end in params:
+            z = self.create_array(shape=shape, chunks=chunks, dtype=int)
+            a = np.arange(np.product(shape)).reshape(shape)
+            z[:] = a
+            end_array = min(end, a.shape[0])
+            for expect, actual in zip_longest(a[start:end_array],
+                                              z.islice(start, end)):
                 assert_array_equal(expect, actual)
             if hasattr(z.store, 'close'):
                 z.store.close()
@@ -1577,6 +1630,10 @@ class TestArrayWithABSStore(TestArray):
         init_array(store, **kwargs)
         return Array(store, read_only=read_only, cache_metadata=cache_metadata,
                      cache_attrs=cache_attrs)
+
+    @pytest.mark.xfail
+    def test_nbytes_stored(self):
+        return super().test_nbytes_stored()
 
 
 class TestArrayWithNestedDirectoryStore(TestArrayWithDirectoryStore):
@@ -1815,7 +1872,7 @@ class TestArrayWithN5Store(TestArrayWithDirectoryStore):
         z = self.create_array(shape=(1050,), chunks=100, dtype='i4')
         for k in n5_keywords:
             with pytest.raises(ValueError):
-                z.attrs[k] = u""
+                z.attrs[k] = ""
 
     def test_compressors(self):
         compressors = [
@@ -2370,3 +2427,115 @@ class TestArrayWithStoreCache(TestArray):
     def test_store_has_bytes_values(self):
         # skip as the cache has no control over how the store provides values
         pass
+
+
+@pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
+class TestArrayWithFSStore(TestArray):
+    @staticmethod
+    def create_array(read_only=False, **kwargs):
+        path = mkdtemp()
+        atexit.register(shutil.rmtree, path)
+        store = FSStore(path)
+        cache_metadata = kwargs.pop('cache_metadata', True)
+        cache_attrs = kwargs.pop('cache_attrs', True)
+        kwargs.setdefault('compressor', Blosc())
+        init_array(store, **kwargs)
+        return Array(store, read_only=read_only, cache_metadata=cache_metadata,
+                     cache_attrs=cache_attrs)
+
+    def test_hexdigest(self):
+        # Check basic 1-D array
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        assert 'f710da18d45d38d4aaf2afd7fb822fdd73d02957' == z.hexdigest()
+
+        # Check basic 1-D array with different type
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<f4')
+        assert '1437428e69754b1e1a38bd7fc9e43669577620db' == z.hexdigest()
+
+        # Check basic 2-D array
+        z = self.create_array(shape=(20, 35,), chunks=10, dtype='<i4')
+        assert '6c530b6b9d73e108cc5ee7b6be3d552cc994bdbe' == z.hexdigest()
+
+        # Check basic 1-D array with some data
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        z[200:400] = np.arange(200, 400, dtype='i4')
+        assert '4c0a76fb1222498e09dcd92f7f9221d6cea8b40e' == z.hexdigest()
+
+        # Check basic 1-D array with attributes
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        z.attrs['foo'] = 'bar'
+        assert '05b0663ffe1785f38d3a459dec17e57a18f254af' == z.hexdigest()
+
+
+@pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
+class TestArrayWithFSStorePartialRead(TestArray):
+    @staticmethod
+    def create_array(read_only=False, **kwargs):
+        path = mkdtemp()
+        atexit.register(shutil.rmtree, path)
+        store = FSStore(path)
+        cache_metadata = kwargs.pop("cache_metadata", True)
+        cache_attrs = kwargs.pop("cache_attrs", True)
+        kwargs.setdefault("compressor", Blosc())
+        init_array(store, **kwargs)
+        return Array(
+            store,
+            read_only=read_only,
+            cache_metadata=cache_metadata,
+            cache_attrs=cache_attrs,
+            partial_decompress=True,
+        )
+
+    def test_hexdigest(self):
+        # Check basic 1-D array
+        z = self.create_array(shape=(1050,), chunks=100, dtype="<i4")
+        assert "f710da18d45d38d4aaf2afd7fb822fdd73d02957" == z.hexdigest()
+
+        # Check basic 1-D array with different type
+        z = self.create_array(shape=(1050,), chunks=100, dtype="<f4")
+        assert "1437428e69754b1e1a38bd7fc9e43669577620db" == z.hexdigest()
+
+        # Check basic 2-D array
+        z = self.create_array(
+            shape=(
+                20,
+                35,
+            ),
+            chunks=10,
+            dtype="<i4",
+        )
+        assert "6c530b6b9d73e108cc5ee7b6be3d552cc994bdbe" == z.hexdigest()
+
+        # Check basic 1-D array with some data
+        z = self.create_array(shape=(1050,), chunks=100, dtype="<i4")
+        z[200:400] = np.arange(200, 400, dtype="i4")
+        assert "4c0a76fb1222498e09dcd92f7f9221d6cea8b40e" == z.hexdigest()
+
+        # Check basic 1-D array with attributes
+        z = self.create_array(shape=(1050,), chunks=100, dtype="<i4")
+        z.attrs["foo"] = "bar"
+        assert "05b0663ffe1785f38d3a459dec17e57a18f254af" == z.hexdigest()
+
+    def test_non_cont(self):
+        z = self.create_array(shape=(500, 500, 500), chunks=(50, 50, 50), dtype="<i4")
+        z[:, :, :] = 1
+        # actually go through the partial read by accessing a single item
+        assert z[0, :, 0].any()
+
+    def test_read_nitems_less_than_blocksize_from_multiple_chunks(self):
+        '''Tests to make sure decompression doesn't fail when `nitems` is
+        less than a compressed block size, but covers multiple blocks
+        '''
+        z = self.create_array(shape=1000000, chunks=100_000)
+        z[40_000:80_000] = 1
+        b = Array(z.store, read_only=True, partial_decompress=True)
+        assert (b[40_000:80_000] == 1).all()
+
+    def test_read_from_all_blocks(self):
+        '''Tests to make sure `PartialReadBuffer.read_part` doesn't fail when
+        stop isn't in the `start_points` array
+        '''
+        z = self.create_array(shape=1000000, chunks=100_000)
+        z[2:99_000] = 1
+        b = Array(z.store, read_only=True, partial_decompress=True)
+        assert (b[2:99_000] == 1).all()
