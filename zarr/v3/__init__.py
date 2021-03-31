@@ -163,16 +163,17 @@ class BaseV3Store:
         """
         assert prefix.endswith("/")
 
-        def part1(key):
-            if "/" not in key:
-                return key
-            else:
-                return key.split("/", maxsplit=1)[0] + "/"
-
         all_keys = await self.async_list_prefix(prefix)
         len_prefix = len(prefix)
-        trail = {part1(k[len_prefix:]) for k in all_keys}
-        return [prefix + k for k in trail]
+        keys = []
+        prefixes = []
+        for k in all_keys:
+            trail = k[len_prefix:]
+            if "/" not in trail:
+                keys.append(prefix + trail)
+            else:
+                prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
+        return keys, prefixes
 
     async def async_contains(self, key):
         assert key.startswith(("meta/", "data/")), "Got {}".format(key)
