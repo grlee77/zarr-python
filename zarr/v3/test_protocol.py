@@ -53,9 +53,10 @@ async def test_scenario():
     with pytest.raises(AssertionError):
         assert store.list_dir("meta/this")
 
-    assert set(store.list_dir("meta/this/")) == set(
-        ["meta/this/also/", "meta/this/is/"]
-    )
+    keys, prefixes = store.list_dir("meta/this/")
+    assert set(keys) == set([])
+    assert set(prefixes) == set(["meta/this/also/", "meta/this/is/"])
+
     with pytest.raises(AssertionError):
         assert await store.async_list_dir("meta/this")
 
