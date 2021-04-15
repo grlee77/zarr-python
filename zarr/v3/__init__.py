@@ -173,7 +173,7 @@ class BaseV3Store:
                 keys.append(prefix + trail)
             else:
                 prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
-        return keys, prefixes
+        return keys, list(set(prefixes))
 
     async def async_contains(self, key):
         assert key.startswith(("meta/", "data/")), "Got {}".format(key)
