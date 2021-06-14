@@ -93,6 +93,7 @@ class Array:
     dtype
     compression
     compression_opts
+    dimension_separator
     fill_value
     order
     synchronizer
@@ -206,10 +207,12 @@ class Array:
                 meta = decode_array_metadata(meta_bytes)
                 self._meta = meta
                 self._shape = meta["shape"]
-                self._dtype = meta["dtype"]
                 self._chunks = meta["chunks"]
+                self._dtype = meta["dtype"]
                 self._fill_value = meta["fill_value"]
                 self._order = meta["order"]
+                self._dimension_separator = meta.get('dimension_separator',
+                                                     '.')
             elif self._version == 3:
                 meta = decode_array_metadata_v3(meta_bytes)
                 self._meta = meta
@@ -218,6 +221,8 @@ class Array:
                 self._dtype = meta["data_type"]
                 self._fill_value = meta["fill_value"]
                 self._order = meta["chunk_memory_layout"]
+                self._dimension_separator = meta.get('dimension_separator',
+                                                     '/')  # keep in v3?
 
             # setup compressor
             config = meta['compressor']
@@ -1977,11 +1982,7 @@ class Array:
         return self._encode_chunk(chunk)
 
     def _chunk_key(self, chunk_coords):
-        if hasattr(self._store, 'key_separator'):
-            separator = self._store.key_separator
-        else:
-            separator = '.'
-        return self._key_prefix + separator.join(map(str, chunk_coords))
+        return self._key_prefix + '.'.join(map(str, chunk_coords))
 
     def _decode_chunk(self, cdata, start=None, nitems=None, expected_shape=None):
         # decompress

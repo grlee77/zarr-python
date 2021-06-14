@@ -1,5 +1,6 @@
 import atexit
 import os
+import sys
 import pickle
 import shutil
 import sys
@@ -28,7 +29,7 @@ from zarr.storage import (ABSStore, DBMStore, DirectoryStore, FSStore,
                           array_meta_key, atexit_rmglob, atexit_rmtree,
                           group_meta_key, init_array, init_group)
 from zarr.util import InfoReporter
-from zarr.tests.util import skip_test_env_var, have_fsspec
+from zarr.tests.util import skip_test_env_var, have_fsspec, abs_container
 
 
 # Async test need to be top-level.
@@ -1035,14 +1036,15 @@ class TestGroupWithABSStore(TestGroup):
 
     @staticmethod
     def create_store():
-        asb = pytest.importorskip("azure.storage.blob")
-        blob_client = asb.BlockBlobService(is_emulated=True)
-        blob_client.delete_container('test')
-        blob_client.create_container('test')
-        store = ABSStore(container='test', account_name='foo', account_key='bar',
-                         blob_service_kwargs={'is_emulated': True})
+        container_client = abs_container()
+        store = ABSStore(client=container_client)
         store.rmdir()
         return store, None
+
+    @pytest.mark.skipif(sys.version_info < (3, 7), reason="attr not serializable in py36")
+    def test_pickle(self):
+        # internal attribute on ContainerClient isn't serializable for py36 and earlier
+        super().test_pickle()
 
 
 class TestGroupWithNestedDirectoryStore(TestGroup):
@@ -1086,6 +1088,18 @@ class TestGroupWithNestedFSStore(TestGroupWithFSStore):
         atexit.register(atexit_rmtree, path)
         store = FSStore(path, key_separator='/', auto_mkdir=True)
         return store, None
+
+    def test_inconsistent_dimension_separator(self):
+        data = np.arange(1000).reshape(10, 10, 10)
+        name = 'raw'
+
+        store, _ = self.create_store()
+        f = open_group(store, mode='w')
+
+        # cannot specify dimension_separator that conflicts with the store
+        with pytest.raises(ValueError):
+            f.create_dataset(name, data=data, chunks=(5, 5, 5),
+                             compressor=None, dimension_separator='.')
 
 
 class TestGroupWithZipStore(TestGroup):

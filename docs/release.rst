@@ -1,6 +1,72 @@
 Release notes
 =============
 
+.. _release_2.8.3:
+
+2.8.3
+-----
+
+Bug fixes
+~~~~~~~~~
+
+* FSStore: default to normalize_keys=False
+  By :user:`Josh Moore <joshmoore>`; :issue:`755`.
+* ABSStore: compatibility with ``azure.storage.python>=12`` 
+  By :user:`Tom Augspurger <tomaugspurger>`; :issue:`618`
+
+
+.. _release_2.8.2:
+
+2.8.2
+-----
+
+Documentation
+~~~~~~~~~~~~~
+
+* Add section on rechunking to tutorial
+  By :user:`David Baddeley <David-Baddeley>`; :issue:`730`.
+
+Bug fixes
+~~~~~~~~~
+
+* Expand FSStore tests and fix implementation issues
+  By :user:`Davis Bennett <d-v-b>`; :issue:`709`.
+
+Maintenance
+~~~~~~~~~~~
+
+* Updated ipytree warning for jlab3
+  By :user:`Ian Hunt-Isaak <ianhi>`; :issue:`721`.
+
+* b170a48a - (issue-728, copy-nested) Updated ipytree warning for jlab3 (#721) (3 weeks ago) <Ian Hunt-Isaak>
+* Activate dependabot
+  By :user:`Josh Moore <joshmoore>`; :issue:`734`.
+
+* Update Python classifiers (Zarr is stable!)
+  By :user:`Josh Moore <joshmoore>`; :issue:`731`.
+
+.. _release_2.8.1:
+
+2.8.1
+-----
+
+Bug fixes
+~~~~~~~~~
+
+* raise an error if create_dataset's dimension_separator is inconsistent
+  By :user:`Gregory R. Lee <grlee77>`; :issue:`724`.
+
+.. _release_2.8.0:
+
+2.8.0
+-----
+
+V2 Specification Update
+~~~~~~~~~~~~~~~~~~~~~~~
+
+* Introduce optional dimension_separator .zarray key for nested chunks.
+  By :user:`Josh Moore <joshmoore>`; :issue:`715`, :issue:`716`.
+
 .. _release_2.7.1:
 
 2.7.1
