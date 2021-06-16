@@ -18,6 +18,9 @@ class StoreComparer(MutableMapping):
     def __init__(self, reference, tested):
         self.reference = reference
         self.tested = tested
+        self._dimension_separator = getattr(
+            reference, '_dimension_separator', None
+        )
 
     def __getitem__(self, key):
         try:

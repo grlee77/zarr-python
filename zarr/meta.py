@@ -54,6 +54,8 @@ def parse_metadata(s: Union[MappingType, str]) -> MappingType[str, Any]:
 def decode_array_metadata_v3(s):
     meta = parse_metadata(s)
 
+    # dimension_separator = meta.get('dimension_separator', None)
+
     # check metadata format
     # extract array metadata fields
     dtype = decode_dtype_v3(meta["data_type"])
@@ -66,6 +68,9 @@ def decode_array_metadata_v3(s):
         fill_value=fill_value,
         chunk_memory_layout=meta["chunk_memory_layout"],
     )
+    # if dimension_separator:
+    #     meta['dimension_separator'] = dimension_separator
+
     return meta
 
 
@@ -79,6 +84,7 @@ def decode_array_metadata(s: Union[MappingType, str]) -> MappingType[str, Any]:
 
     # extract array metadata fields
     try:
+        dimension_separator = meta.get('dimension_separator', None)
         dtype = decode_dtype(meta['dtype'])
         fill_value = decode_fill_value(meta['fill_value'], dtype)
         meta = dict(
@@ -90,8 +96,9 @@ def decode_array_metadata(s: Union[MappingType, str]) -> MappingType[str, Any]:
             fill_value=fill_value,
             order=meta['order'],
             filters=meta['filters'],
-            dimension_separator=meta.get('dimension_separator', '.'),
         )
+        if dimension_separator:
+            meta['dimension_separator'] = dimension_separator
 
     except Exception as e:
         raise MetadataError("error decoding metadata") from e
@@ -104,6 +111,9 @@ def encode_array_metadata(meta: MappingType[str, Any]) -> bytes:
     sdshape = ()
     if dtype.subdtype is not None:
         dtype, sdshape = dtype.subdtype
+
+    dimension_separator = meta.get('dimension_separator')
+
     meta = dict(
         zarr_format=ZARR_FORMAT,
         shape=meta["shape"] + sdshape,
@@ -114,10 +124,14 @@ def encode_array_metadata(meta: MappingType[str, Any]) -> bytes:
         order=meta["order"],
         filters=meta["filters"],
     )
+
+    if dimension_separator:
+        meta['dimension_separator'] = dimension_separator
+
     return json_dumps(meta)
 
 
-def encode_array_metadata_v3(meta):
+def encode_array_metadata_v3(meta: MappingType[str, Any]) -> bytes:
     dtype = meta['dtype']
     sdshape = ()
     if dtype.subdtype is not None:

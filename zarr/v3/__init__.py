@@ -45,6 +45,7 @@ class BaseV3Store:
     """
 
     _store_version = 3
+    _dimension_separator = None
     _async = True
 
     @staticmethod
@@ -137,9 +138,10 @@ class BaseV3Store:
                 "attributes",
             }
             current = set(v.keys())
+            current = current - {'dimension_separator'}  # TODO: ignore possible extra dimension_separator entry in .array
             # ets do some conversions.
             assert current == expected, "{} extra, {} missing in {}".format(
-                current - expected, expected - curent, v
+                current - expected, expected - current, v
             )
 
         assert isinstance(value, bytes)
@@ -192,9 +194,10 @@ class BaseV3Store:
 class AsyncV3DirectoryStore(BaseV3Store):
     log = []
 
-    def __init__(self, key):
+    def __init__(self, key, dimension_separator=None):
         self.log.append("init")
         self.root = pathlib.Path(key)
+        self._dimension_separator = dimension_separator
 
     async def _get(self, key: Key):
         self.log.append("get" + key)
@@ -291,8 +294,9 @@ class SyncV3RedisStore(AsyncV3RedisStore):
 
 
 class AsyncV3MemoryStore(BaseV3Store):
-    def __init__(self):
+    def __init__(self, dimension_separator=None):
         self._backend = dict()
+        self._dimension_separator = dimension_separator  # needed for StoreComparer tests
 
     async def _get(self, key):
         return self._backend[key]
@@ -437,6 +441,8 @@ class V2from3Adapter(MutableMapping):
 
         """
         self._v3store = v3store
+        self._dimension_separator = v3store._dimension_separator
+
 
     def __getitem__(self, key):
         """
@@ -463,6 +469,10 @@ class V2from3Adapter(MutableMapping):
                 del data[source]
                 data[target] = tmp
             data["chunks"] = data["chunk_grid"]["chunk_shape"]
+            # For v3, do not store "dimension_separator" since it is redundant
+            # with ["chunk_grid"]["separator"].
+            # if self._dimension_separator:
+            #     data["dimension_separator"] = data["chunk_grid"]["separator"]
             del data["chunk_grid"]
 
             data["zarr_format"] = 2
@@ -501,7 +511,8 @@ class V2from3Adapter(MutableMapping):
             data["chunk_grid"]["chunk_shape"] = data["chunks"]
             del data["chunks"]
             data["chunk_grid"]["type"] = "rectangular"
-            data["chunk_grid"]["separator"] = "/"
+            data["chunk_grid"]["separator"] = data.get("dimension_separator",
+                                                       "/")  # TODO: check
             assert data["zarr_format"] == 2
             del data["zarr_format"]
             assert data["filters"] in ([], None), "found filters: {}".format(

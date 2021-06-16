@@ -401,8 +401,9 @@ class StoreTests(object):
         assert np.dtype(None) == meta['dtype']
         assert default_compressor.get_config() == meta['compressor']
         assert meta['fill_value'] is None
-        # Missing MUST be assumed to be "."
-        assert meta.get('dimension_separator', ".") is want_dim_sep
+
+        default_sep = '.' if getattr(store, "_store_version", 2) == 2 else '/'
+        assert meta.get('dimension_separator', default_sep) is want_dim_sep
 
         if hasattr(store, 'close'):
             store.close()
@@ -769,10 +770,12 @@ def setdel_hierarchy_checks(store):
 
 @pytest.mark.skipif(sys.version_info < (3, 6), reason="needs trio")
 class TestV3Adapter(StoreTests):
-    def create_store(self):
+    def create_store(self, dimension_separator=None):
         from zarr.v3 import V2from3Adapter, SyncV3MemoryStore, StoreComparer
-
-        self._store = StoreComparer(MemoryStore(), V2from3Adapter(SyncV3MemoryStore()))
+        self._store = StoreComparer(
+            MemoryStore(dimension_separator=dimension_separator),
+            V2from3Adapter(SyncV3MemoryStore(dimension_separator=dimension_separator))
+        )
         return self._store
 
     def test_store_contains_bytes(self):
