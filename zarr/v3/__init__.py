@@ -512,7 +512,7 @@ class V2from3Adapter(MutableMapping):
             del data["chunks"]
             data["chunk_grid"]["type"] = "rectangular"
             data["chunk_grid"]["separator"] = data.get("dimension_separator",
-                                                       "/")  # TODO: check
+                                                       "/")
             assert data["zarr_format"] == 2
             del data["zarr_format"]
             assert data["filters"] in ([], None), "found filters: {}".format(
