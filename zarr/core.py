@@ -30,8 +30,13 @@ from zarr.indexing import (
     is_scalar,
     pop_fields,
 )
-from zarr.meta import decode_array_metadata, encode_array_metadata
-from zarr.storage import array_meta_key, attrs_key, getsize, listdir, Store
+from zarr.storage import (
+    _prefix_to_attrs_key,
+    _prefix_to_array_key,
+    getsize,
+    listdir,
+    Store,
+)
 from zarr.util import (
     InfoReporter,
     check_array_shape,
@@ -159,12 +164,13 @@ class Array:
         self._cache_metadata = cache_metadata
         self._is_view = False
         self._partial_decompress = partial_decompress
+        self._version = store._store_version
 
         # initialize metadata
         self._load_metadata()
 
         # initialize attributes
-        akey = self._key_prefix + attrs_key
+        akey = _prefix_to_attrs_key(self._store, self._key_prefix)
         self._attrs = Attributes(store, key=akey, read_only=read_only,
                                  synchronizer=synchronizer, cache=cache_attrs)
 
@@ -180,27 +186,40 @@ class Array:
         if self._synchronizer is None:
             self._load_metadata_nosync()
         else:
-            mkey = self._key_prefix + array_meta_key
+            mkey = _prefix_to_array_key(self._store, self._key_prefix)
             with self._synchronizer[mkey]:
                 self._load_metadata_nosync()
 
     def _load_metadata_nosync(self):
         try:
-            mkey = self._key_prefix + array_meta_key
+            mkey = _prefix_to_array_key(self._store, self._key_prefix)
             meta_bytes = self._store[mkey]
         except KeyError:
             raise ArrayNotFoundError(self._path)
         else:
 
             # decode and store metadata as instance members
-            meta = decode_array_metadata(meta_bytes)
+            meta = self._store._metadata_class.decode_array_metadata(
+                meta_bytes
+            )
             self._meta = meta
             self._shape = meta['shape']
-            self._chunks = meta['chunks']
-            self._dtype = meta['dtype']
             self._fill_value = meta['fill_value']
-            self._order = meta['order']
-            self._dimension_separator = meta.get('dimension_separator', '.')
+            if self._version == 2:
+                self._chunks = meta['chunks']
+                self._dtype = meta['dtype']
+                self._order = meta['order']
+                self._dimension_separator = meta.get('dimension_separator',
+                                                     '.')
+            else:
+                self._chunks = meta['chunk_grid']['chunk_shape']
+                self._dtype = meta['data_type']
+                self._order = meta['chunk_memory_layout']
+                # TODO: omit attribute in v3?
+                self._dimension_separator = meta.get('dimension_separator',
+                                                     '/')
+                chunk_separator = meta['chunk_grid']['separator']
+                assert chunk_separator == self._dimension_separator
 
             # setup compressor
             config = meta['compressor']
@@ -210,7 +229,7 @@ class Array:
                 self._compressor = get_codec(config)
 
             # setup filters
-            filters = meta['filters']
+            filters = meta.get('filters', [])
             if filters:
                 filters = [get_codec(config) for config in filters]
             self._filters = filters
@@ -238,8 +257,10 @@ class Array:
         meta = dict(shape=self._shape, chunks=self._chunks, dtype=self._dtype,
                     compressor=compressor_config, fill_value=self._fill_value,
                     order=self._order, filters=filters_config)
-        mkey = self._key_prefix + array_meta_key
-        self._store[mkey] = encode_array_metadata(meta)
+        mkey = _prefix_to_array_key(self._store, self._key_prefix)
+        self._store[mkey] = self._store._metadata_class.encode_array_metadata(
+            meta
+        )
 
     @property
     def store(self):
@@ -1792,7 +1813,10 @@ class Array:
 
         try:
             # obtain compressed data for chunk
-            cdata = self.chunk_store[ckey]
+            if self._version == 2:
+                cdata = self.chunk_store[ckey]
+            elif self._version ==3:
+                cdata = self.chunk_store['data/root/' + ckey]
 
         except KeyError:
             # chunk not initialized
@@ -2138,7 +2162,8 @@ class Array:
         for i in itertools.product(*[range(s) for s in self.cdata_shape]):
             h.update(self.chunk_store.get(self._chunk_key(i), b""))
 
-        h.update(self.store.get(self._key_prefix + array_meta_key, b""))
+        mkey = _prefix_to_array_key(self._store, self._key_prefix)
+        h.update(self.store.get(mkey, b""))
 
         h.update(self.store.get(self.attrs.key, b""))
 
@@ -2187,7 +2212,7 @@ class Array:
 
         else:
             # synchronize on the array
-            mkey = self._key_prefix + array_meta_key
+            mkey = _prefix_to_array_key(self._store, self._key_prefix)
             lock = self._synchronizer[mkey]
 
         with lock:

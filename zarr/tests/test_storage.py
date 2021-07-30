@@ -19,13 +19,13 @@ from numcodecs.compat import ensure_bytes
 from zarr.codecs import BZ2, AsType, Blosc, Zlib
 from zarr.errors import MetadataError
 from zarr.hierarchy import group
-from zarr.meta import (ZARR_FORMAT, decode_array_metadata,
+from zarr.meta import (ZARR_FORMAT, ZARR_FORMAT_v3, decode_array_metadata,
                        decode_group_metadata, encode_array_metadata,
                        encode_group_metadata)
 from zarr.n5 import N5Store
 from zarr.storage import (ABSStore, ConsolidatedMetadataStore, DBMStore,
-                          DictStore, DirectoryStore, KVStore, LMDBStore,
-                          LRUStoreCache, MemoryStore, MongoDBStore,
+                          DictStore, DirectoryStore, KVStore, KVStoreV3,
+                          LMDBStore, LRUStoreCache, MemoryStore, MongoDBStore,
                           NestedDirectoryStore, RedisStore, SQLiteStore,
                           Store, TempStore, ZipStore,
                           array_meta_key, atexit_rmglob, atexit_rmtree,
@@ -46,6 +46,15 @@ def does_not_raise():
     ("/", "/"),
 ])
 def dimension_separator_fixture(request):
+    return request.param
+
+
+@pytest.fixture(params=[
+    (None, "/"),
+    (".", "."),
+    ("/", "/"),
+])
+def dimension_separator_fixture_v3(request):
     return request.param
 
 
@@ -417,6 +426,7 @@ class StoreTests(object):
 
         store.close()
 
+
     def test_init_array(self, dimension_separator_fixture):
 
         pass_dim_sep, want_dim_sep = dimension_separator_fixture
@@ -747,6 +757,429 @@ class TestMappingStore(StoreTests):
     def test_set_invalid_content(self):
         # Generic mappings support non-buffer types
         pass
+
+
+class StoreV3Tests(StoreTests):
+
+    def test_get_set_del_contains(self):
+        store = self.create_store()
+
+        # test __contains__, __getitem__, __setitem__
+        assert 'foo' not in store
+        with pytest.raises(KeyError):
+            # noinspection PyStatementEffect
+            store['foo']
+        store['foo'] = b'bar'
+        assert 'foo' in store
+        assert b'bar' == ensure_bytes(store['foo'])
+
+        # test __delitem__ (optional)
+        try:
+            del store['foo']
+        except NotImplementedError:
+            pass
+        else:
+            assert 'foo' not in store
+            with pytest.raises(KeyError):
+                # noinspection PyStatementEffect
+                store['foo']
+            with pytest.raises(KeyError):
+                # noinspection PyStatementEffect
+                del store['foo']
+
+        store.close()
+
+    def test_init_array(self, dimension_separator_fixture_v3):
+
+        pass_dim_sep, want_dim_sep = dimension_separator_fixture_v3
+
+        store = self.create_store()
+        path = 'meta/root/arr1'
+        init_array(store, path=path, shape=1000, chunks=100,
+                   dimension_separator=pass_dim_sep)
+
+        # check metadata
+        assert (path + '.array.json') in store
+        meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+        assert ZARR_FORMAT_v3 == meta['zarr_format']  # TODO: already stored at the heirarchy level should we also keep it in the .array.json?
+        assert (1000,) == meta['shape']
+        assert (100,) == meta['chunk_grid']['chunk_shape']
+        assert np.dtype(None) == meta['data_type']
+        assert default_compressor.get_config() == meta['compressor']
+        assert meta['fill_value'] is None
+        # Missing MUST be assumed to be "/"
+        # TODO
+        # assert meta.get('dimension_separator', "/") is want_dim_sep
+        assert meta['chunk_grid']['separator'] is want_dim_sep
+
+
+        store.close()
+
+    def _test_init_array_overwrite(self, order):
+        # setup
+        store = self.create_store()
+
+        if store._store_version < 3:
+            path = None
+            _array_meta_key = array_meta_key
+        else:
+            path = 'meta/root/arr1'  # no default, have to specify for v3
+            _array_meta_key = path + '.array.json'
+        store[_array_meta_key] = store._metadata_class.encode_array_metadata(
+            dict(shape=(2000,),
+                 chunk_grid=dict(type='regular',
+                                 chunk_shape=(200,),
+                                 separator=('/')),
+                 data_type=np.dtype('u1'),
+                 compressor=Zlib(1).get_config(),
+                 fill_value=0,
+                 chunk_memory_layout=order,
+                 filters=None)
+        )
+
+        # don't overwrite (default)
+        with pytest.raises(ValueError):
+            init_array(store, path=path, shape=1000, chunks=100)
+
+        # do overwrite
+        try:
+            init_array(store, path=path, shape=1000, chunks=100,
+                       dtype='i4', overwrite=True)
+        except NotImplementedError:
+            pass
+        else:
+            assert _array_meta_key in store
+            # meta = decode_array_metadata(store[_array_meta_key])
+            meta = store._metadata_class.decode_array_metadata(
+                store[_array_meta_key]
+            )
+            assert (1000,) == meta['shape']
+            if store._store_version == 2:
+                assert ZARR_FORMAT == meta['zarr_format']
+                assert (100,) == meta['chunks']
+                assert np.dtype('i4') == meta['dtype']
+            elif store._store_version == 3:
+                assert ZARR_FORMAT_v3 == meta['zarr_format']
+                assert (100,) == meta['chunk_grid']['chunk_shape']
+                assert np.dtype('i4') == meta['data_type']
+            else:
+                raise ValueError(
+                    "unexpected store version: {store._store_version}"
+            )
+        store.close()
+
+    def test_init_array_path(self):
+        # TODO: raise error if path starts with '/'
+        path = 'meta/root/foo/bar'  # TODO: have to specify meta/root/ here?
+        store = self.create_store()
+        init_array(store, shape=1000, chunks=100, path=path)
+
+        # check metadata
+        key = path + '.array.json'
+        assert key in store
+        meta = store._metadata_class.decode_array_metadata(store[key])
+        assert ZARR_FORMAT_v3 == meta['zarr_format']
+        assert (1000,) == meta['shape']
+        assert (100,) == meta['chunk_grid']['chunk_shape']
+        assert np.dtype(None) == meta['data_type']
+        assert default_compressor.get_config() == meta['compressor']
+        assert meta['fill_value'] is None
+
+        store.close()
+
+    def _test_init_array_overwrite_path(self, order):
+        # setup
+        path = 'meta/root/foo/bar'  # TODO: have to specify meta/root/ here?
+        store = self.create_store()
+        meta = dict(shape=(2000,),
+                    chunk_grid=dict(type='regular',
+                                    chunk_shape=(200,),
+                                    separator=('/')),
+                    data_type=np.dtype('u1'),
+                    compressor=Zlib(1).get_config(),
+                    fill_value=0,
+                    chunk_memory_layout=order,
+                    filters=None)
+        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(meta)
+
+        # don't overwrite
+        with pytest.raises(ValueError):
+            init_array(store, shape=1000, chunks=100, path=path)
+
+        # do overwrite
+        try:
+            init_array(store, shape=1000, chunks=100, dtype='i4', path=path,
+                       overwrite=True)
+        except NotImplementedError:
+            pass
+        else:
+            assert (path + '.array.json') in store
+            # should have been overwritten
+            meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+            assert ZARR_FORMAT_v3 == meta['zarr_format']
+            assert (1000,) == meta['shape']
+            assert (100,) == meta['chunk_grid']['chunk_shape']
+            assert np.dtype('i4') == meta['data_type']
+
+        store.close()
+
+    def test_init_array_overwrite_group(self):
+        # setup
+        path = 'meta/root/foo/bar'
+        store = self.create_store()
+        store[path + '.group'] = store._metadata_class.encode_group_metadata()
+
+        # can init an array with the same path, due to differing extension?
+        # TODO: verify this is the expected behavior
+        init_array(store, shape=1000, chunks=100, path=path)
+
+        # do overwrite
+        try:
+            init_array(store, shape=1000, chunks=100, dtype='i4', path=path,
+                       overwrite=True)
+        except NotImplementedError:
+            pass
+        else:
+            assert (path + '.group') in store
+            assert (path + '.array.json') in store
+            meta = store._metadata_class.decode_array_metadata(
+                store[path + '.array.json']
+            )
+            assert ZARR_FORMAT_v3 == meta['zarr_format']
+            assert (1000,) == meta['shape']
+            assert (100,) == meta['chunk_grid']['chunk_shape']
+            assert np.dtype('i4') == meta['data_type']
+
+        store.close()
+
+    def _test_init_array_overwrite_chunk_store(self, order):
+        # setup
+        store = self.create_store()
+        chunk_store = self.create_store()
+        path = 'meta/root/arr1'
+        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(
+            dict(shape=(2000,),
+                 chunk_grid=dict(type='regular',
+                                 chunk_shape=(200,),
+                                 separator=('/')),
+                 data_type=np.dtype('u1'),
+                 compressor=None,
+                 fill_value=0,
+                 filters=None,
+                 chunk_memory_layout=order)
+        )
+        chunk_store['data/root/arr1/0'] = b'aaa'
+        chunk_store['data/root/arr1/1'] = b'bbb'
+
+        assert 'data/root/arr1/0' in chunk_store
+        assert 'data/root/arr1/1' in chunk_store
+
+        # don't overwrite (default)
+        with pytest.raises(ValueError):
+            init_array(store, path=path, shape=1000, chunks=100, chunk_store=chunk_store)
+
+        # do overwrite
+        try:
+            init_array(store, path=path, shape=1000, chunks=100, dtype='i4',
+                       overwrite=True, chunk_store=chunk_store)
+        except NotImplementedError:
+            pass
+        else:
+            assert (path + '.array.json') in store
+            meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+            assert ZARR_FORMAT_v3 == meta['zarr_format']
+            assert (1000,) == meta['shape']
+            assert (100,) == meta['chunk_grid']['chunk_shape']
+            assert np.dtype('i4') == meta['data_type']
+            assert 'data/root/arr1/0' not in chunk_store
+            assert 'data/root/arr1/1' not in chunk_store
+
+        store.close()
+        chunk_store.close()
+
+    def test_init_array_compat(self):
+        store = self.create_store()
+        path = 'meta/root/arr1'
+        init_array(store, path=path, shape=1000, chunks=100, compressor='none')
+        meta = store._metadata_class.decode_array_metadata(
+            store[path + '.array.json']
+        )
+        assert meta['compressor'] is None
+
+        store.close()
+
+    # TODO: work on init_group
+    # TODO: verify that init_array makes a corresponding data directory
+    def test_init_group(self):
+        store = self.create_store()
+        path = "meta/root/foo"
+        init_group(store, path=path)
+
+        # check metadata
+        assert (path + ".group") in store
+        meta = store._metadata_class.decode_group_metadata(store[path + '.group'])
+        assert meta == {}
+
+        store.close()
+
+    def _test_init_group_overwrite(self, order):
+        pytest.skip(
+            "In v3 array and group names cannot overlap"
+        )
+
+    def _test_init_group_overwrite_path(self, order):
+        # setup
+        path = 'meta/root/foo/bar'  # TODO: make sure group path doesn't start with /
+        store = self.create_store()
+        meta = dict(
+            shape=(2000,),
+            chunk_grid=dict(type='regular',
+                            chunk_shape=(200,),
+                            separator=('/')),
+            data_type=np.dtype('u1'),
+            compressor=None,
+            fill_value=0,
+            filters=None,
+            chunk_memory_layout=order,
+        )
+        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(meta)
+        init_group(store, path=path)  # /meta/root/foo/bar.group
+
+        # don't overwrite
+        with pytest.raises(ValueError):
+            init_group(store, path=path)
+
+        # do overwrite
+        try:
+            init_group(store, overwrite=True, path=path)
+        except NotImplementedError:
+            pass
+        else:
+            assert (path + '.array.json') in store
+            assert (path + '.group') in store
+            # should have been overwritten
+            meta = store._metadata_class.decode_group_metadata(store[path + '.group'])
+            #assert ZARR_FORMAT == meta['zarr_format']
+            assert meta == {}
+
+        store.close()
+
+    def _test_init_group_overwrite_chunk_store(self, order):
+        pytest.skip(
+            "In v3 array and group names cannot overlap"
+        )
+
+
+class TestMappingStoreV3(StoreV3Tests):
+
+    def create_store(self, **kwargs):
+        return KVStoreV3(dict())
+
+    def test_set_invalid_content(self):
+        # Generic mappings support non-buffer types
+        pass
+
+
+# class TestMemoryStoreV3(StoreV3Tests):
+
+#     def create_store(self, **kwargs):
+#         # skip_if_nested_chunks(**kwargs)
+#         return MemoryStoreV3(**kwargs)
+
+#     def test_store_contains_bytes(self):
+#         store = self.create_store()
+#         store['foo'] = np.array([97, 98, 99, 100, 101], dtype=np.uint8)
+#         assert store['foo'] == b'abcde'
+
+#     def test_setdel(self):
+#         store = self.create_store()
+#         setdel_hierarchy_checks_v3(store)
+
+
+# class TestDirectoryStoreV3(StoreV3Tests):
+
+#     def create_store(self, normalize_keys=False, **kwargs):
+#         skip_if_nested_chunks(**kwargs)  # TODO: remove this skip for v3
+
+#         path = tempfile.mkdtemp()
+#         atexit.register(atexit_rmtree, path)
+#         store = DirectoryStore(path, normalize_keys=normalize_keys, **kwargs)
+#         return store
+
+#     def test_filesystem_path(self):
+
+#         # test behaviour with path that does not exist
+#         path = 'data/store'
+#         if os.path.exists(path):
+#             shutil.rmtree(path)
+#         store = DirectoryStore(path)
+#         # should only be created on demand
+#         assert not os.path.exists(path)
+#         store['foo'] = b'bar'
+#         assert os.path.isdir(path)
+
+#         # check correct permissions
+#         # regression test for https://github.com/zarr-developers/zarr-python/issues/325
+#         stat = os.stat(path)
+#         mode = stat.st_mode & 0o666
+#         umask = os.umask(0)
+#         os.umask(umask)
+#         assert mode == (0o666 & ~umask)
+
+#         # test behaviour with file path
+#         with tempfile.NamedTemporaryFile() as f:
+#             with pytest.raises(ValueError):
+#                 DirectoryStore(f.name)
+
+#     def test_pickle_ext(self):
+#         store = self.create_store()
+#         store2 = pickle.loads(pickle.dumps(store))
+
+#         # check path is preserved
+#         assert store.path == store2.path
+
+#         # check point to same underlying directory
+#         assert 'xxx' not in store
+#         store2['xxx'] = b'yyy'
+#         assert b'yyy' == ensure_bytes(store['xxx'])
+
+#     def test_setdel(self):
+#         store = self.create_store()
+#         setdel_hierarchy_checks(store)
+
+#     def test_normalize_keys(self):
+#         store = self.create_store(normalize_keys=True)
+#         store['FOO'] = b'bar'
+#         assert 'FOO' in store
+#         assert 'foo' in store
+
+#     def test_listing_keys_slash(self):
+
+#         def mock_walker_slash(_path):
+#             yield from [
+#                 # trailing slash in first key
+#                 ('root_with_slash/', ['d1', 'g1'], ['.zgroup']),
+#                 ('root_with_slash/d1', [], ['.zarray']),
+#                 ('root_with_slash/g1', [], ['.zgroup'])
+#             ]
+
+#         res = set(DirectoryStore._keys_fast('root_with_slash/', walker=mock_walker_slash))
+#         assert res == {'.zgroup', 'g1/.zgroup', 'd1/.zarray'}
+
+#     def test_listing_keys_no_slash(self):
+
+#         def mock_walker_no_slash(_path):
+#             yield from [
+#                 # no trainling slash in first key
+#                 ('root_with_no_slash', ['d1', 'g1'], ['.zgroup']),
+#                 ('root_with_no_slash/d1', [], ['.zarray']),
+#                 ('root_with_no_slash/g1', [], ['.zgroup'])
+#             ]
+
+#         res = set(
+#             DirectoryStore._keys_fast('root_with_no_slash', mock_walker_no_slash)
+#                 )
+#         assert res == {'.zgroup', 'g1/.zgroup', 'd1/.zarray'}
 
 
 def setdel_hierarchy_checks(store):
@@ -1794,7 +2227,7 @@ def test_migrate_1to2():
     # concerned about migrating a single array at the root of the store
 
     # setup
-    store = dict()
+    store = KVStore(dict())
     meta = dict(
         shape=(100,),
         chunks=(10,),
@@ -1832,7 +2265,7 @@ def test_migrate_1to2():
     assert meta_migrated['compressor'] == Zlib(1).get_config()
 
     # check dict compression_opts
-    store = dict()
+    store = KVStore(dict())
     meta['compression'] = 'blosc'
     meta['compression_opts'] = dict(cname='lz4', clevel=5, shuffle=1)
     meta_json = meta_v1.encode_metadata(meta)
@@ -1846,7 +2279,7 @@ def test_migrate_1to2():
             Blosc(cname='lz4', clevel=5, shuffle=1).get_config())
 
     # check 'none' compression is migrated to None (null in JSON)
-    store = dict()
+    store = KVStore(dict())
     meta['compression'] = 'none'
     meta_json = meta_v1.encode_metadata(meta)
     store['meta'] = meta_json

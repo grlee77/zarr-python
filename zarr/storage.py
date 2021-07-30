@@ -50,7 +50,7 @@ from zarr.errors import (
     FSPathExistNotDir,
     ReadOnlyError,
 )
-from zarr.meta import encode_array_metadata, encode_group_metadata
+from zarr.meta import Metadata2, Metadata3
 from zarr.util import (buffer_size, json_loads, nolock, normalize_chunks,
                        normalize_dimension_separator,
                        normalize_dtype, normalize_fill_value, normalize_order,
@@ -104,6 +104,10 @@ class Store(MutableMapping):
     _writeable = True
     _erasable = True
     _listable = True
+    _store_version = 2           # v2-specific
+    _metadata_class = Metadata2  # v2-specific
+    # TODO: add _dimension_separator to Store? would require updating hashes again in test_core.py
+    # _dimension_separator = '.'   # TODO: Only have this attribute for v2 Stores? individual arrays have a ["chunk_grid"]["separator"] in v3
 
     def is_readable(self):
         return self._readable
@@ -128,6 +132,8 @@ class Store(MutableMapping):
         if self._open_count == 0:
             self.close()
 
+    # TODO: existing zarr-python v2 stores define listdir, but the v3 spec
+    #       calls this method list_dir.
     def listdir(self, path: str = "") -> List[str]:
         path = normalize_storage_path(path)
         return _listdir_from_keys(self, path)
@@ -197,28 +203,76 @@ def _path_to_prefix(path: Optional[str]) -> str:
     return prefix
 
 
+# TODO: build into __contains__
+def _prefix_to_array_key(store: Store, prefix: str) -> str:
+    if getattr(store, "_store_version", 2) == 3:
+        if prefix:
+            # key = prefix.rstrip('/') + ".array.json"
+            key = "meta/root/" + prefix.rstrip("/") + ".array.json"
+        else:
+            key = "meta/root.array.json"  #TODO: should empty path be allowed?
+            raise ValueError(
+                "prefix must be supplied to initialize a zarr v3 array"
+            )
+    else:
+        key = prefix + array_meta_key
+    return key
+
+
 def contains_array(store: Store, path: Path = None) -> bool:
     """Return True if the store contains an array at the given logical path."""
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
-    key = prefix + array_meta_key
+    key = _prefix_to_array_key(store, prefix)
     return key in store
+
+
+def _prefix_to_group_key(store: Store, prefix: str) -> str:
+    if getattr(store, "_store_version", 2) == 3:
+        if prefix:
+            # key = prefix.rstrip('/') + ".group"
+            key = "meta/root/" + prefix.rstrip('/') + ".group"
+        else:
+            key = "meta/root.group"  # TODO: should empty path be allowed?
+            raise ValueError(
+                "prefix must be supplied to initialize a zarr v3 group"
+            )
+    else:
+        key = prefix + group_meta_key
+    return key
 
 
 def contains_group(store: Store, path: Path = None) -> bool:
     """Return True if the store contains a group at the given logical path."""
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
-    key = prefix + group_meta_key
+    key = _prefix_to_group_key(store, prefix)
     return key in store
 
 
+def _prefix_to_attrs_key(store: Store, prefix: str) -> str:
+    if getattr(store, "_store_version", 2) == 3:
+        if prefix:
+            key = "meta/root/" + prefix + ".array"
+        else:
+            key = "meta/root.array"
+    else:
+        key = prefix + attrs_key
+    return key
+
+
 def _rmdir_from_keys(store: Store, path: Optional[str] = None) -> None:
-    # assume path already normalized
-    prefix = _path_to_prefix(path)
-    for key in list(store.keys()):
-        if key.startswith(prefix):
-            del store[key]
+    if store._store_version == 3:
+        prefix = _path_to_prefix(path)
+        for key in list(store.keys()):
+            if key.startswith(prefix):
+                del store[key]
+    else:
+        # assume path already normalized
+        prefix = _path_to_prefix(path)
+        for key in list(store.keys()):
+            if key.startswith(prefix):
+                del store[key]
 
 
 def rmdir(store: Store, path: Path = None):
@@ -270,11 +324,29 @@ def _listdir_from_keys(store: Store, path: Optional[str] = None) -> List[str]:
     return sorted(children)
 
 
+def _norm(k):
+    if k.endswith(".group"):
+        return k[:-6] + "/"
+    if k.endswith(".array"):
+        return k[:-6]
+    return k
+
+
 def listdir(store: Store, path: Path = None):
     """Obtain a directory listing for the given path. If `store` provides a `listdir`
     method, this will be called, otherwise will fall back to implementation via the
     `MutableMapping` interface."""
     path = normalize_storage_path(path)
+    if getattr(store, "_store_version", None) == 3:
+        if not path.endswith("/"):
+            path = path + "/"
+        assert path.startswith("/")
+
+        res = {_norm(k[10:]) for k in store.list_dir(path[1:])}  # "meta/root" + path)}
+        for r in res:
+            assert not r.startswith("meta/")
+        return res
+
     if hasattr(store, 'listdir'):
         # pass through
         return store.listdir(path)  # type: ignore
@@ -461,7 +533,14 @@ def init_array(
     path = normalize_storage_path(path)
 
     # ensure parent group initialized
-    _require_parent_group(path, store=store, chunk_store=chunk_store, overwrite=overwrite)
+    _store_version = getattr(store, "_store_version", 2)
+    if _store_version < 3:
+        _require_parent_group(path, store=store, chunk_store=chunk_store,
+                              overwrite=overwrite)
+    # else:
+    #     if not path.startswith("meta/root/"):
+    #         # raise this error or automatically prepend?
+    #         raise ValueError("array metadata path must start with meta/root/")
 
     _init_array_metadata(store, shape=shape, chunks=chunks, dtype=dtype,
                          compressor=compressor, fill_value=fill_value,
@@ -490,11 +569,19 @@ def _init_array_metadata(
     # guard conditions
     if overwrite:
         # attempt to delete any pre-existing items in store
+        meta_key = _prefix_to_array_key(_path_to_prefix(store, path)
+        dkey = mkey.replace('meta/', 'data/')
         rmdir(store, path)
         if chunk_store is not None:
-            rmdir(chunk_store, path)
+            if store._store_version < 3:
+                data_path = path
+            else:
+                assert path.startswith('meta/')
+                data_path = 'data/' + path[5:]
+            rmdir(chunk_store, data_path)
     elif contains_array(store, path):
         raise ContainsArrayError(path)
+    # elif store._store_version == 2 and contains_group(store, path):
     elif contains_group(store, path):
         raise ContainsGroupError(path)
 
@@ -507,7 +594,7 @@ def _init_array_metadata(
     fill_value = normalize_fill_value(fill_value, dtype)
 
     # optional array metadata
-    if dimension_separator is None:
+    if dimension_separator is None and store._store_version == 2:
         dimension_separator = getattr(store, "_dimension_separator", None)
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
@@ -556,12 +643,29 @@ def _init_array_metadata(
         filters_config = None  # type: ignore
 
     # initialize metadata
-    meta = dict(shape=shape, chunks=chunks, dtype=dtype,
-                compressor=compressor_config, fill_value=fill_value,
-                order=order, filters=filters_config,
+    # TODO: don't store redundant dimension_separator for v3?
+    meta = dict(shape=shape, compressor=compressor_config,
+                fill_value=fill_value, filters=filters_config,
                 dimension_separator=dimension_separator)
-    key = _path_to_prefix(path) + array_meta_key
-    store[key] = encode_array_metadata(meta)
+    if store._store_version < 3:
+        meta.update(dict(chunks=chunks, dtype=dtype, order=order))
+    else:
+        if dimension_separator is None:
+            dimension_separator = "/"
+        meta.update(
+            dict(chunk_grid=dict(type="regular",
+                                 chunk_shape=chunks,
+                                 separator=dimension_separator),
+                 chunk_memory_layout=order,
+                 data_type=dtype)
+        )
+
+
+    key = _prefix_to_array_key(store, _path_to_prefix(path))
+    store[key] = store._metadata_class.encode_array_metadata(meta)
+    #if store._store_version == 3:
+    #    data_key = key.replace('meta/', 'data/', 1)
+    #    store[data_key]
 
 
 # backwards compatibility
@@ -594,9 +698,10 @@ def init_group(
     # normalize path
     path = normalize_storage_path(path)
 
-    # ensure parent group initialized
-    _require_parent_group(path, store=store, chunk_store=chunk_store,
-                          overwrite=overwrite)
+    if store._store_version < 3:
+        # ensure parent group initialized
+        _require_parent_group(path, store=store, chunk_store=chunk_store,
+                              overwrite=overwrite)
 
     # initialise metadata
     _init_group_metadata(store=store, overwrite=overwrite, path=path,
@@ -615,7 +720,13 @@ def _init_group_metadata(
         # attempt to delete any pre-existing items in store
         rmdir(store, path)
         if chunk_store is not None:
-            rmdir(chunk_store, path)
+            if store._store_version < 3:
+                data_path = path
+            else:
+                assert path.startswith('meta/')
+                data_path = 'data/' + path[5:]
+            rmdir(chunk_store, data_path)
+    # elif store._store_version == 2 and contains_array(store, path):
     elif contains_array(store, path):
         raise ContainsArrayError(path)
     elif contains_group(store, path):
@@ -625,8 +736,8 @@ def _init_group_metadata(
     # N.B., currently no metadata properties are needed, however there may
     # be in future
     meta = dict()  # type: ignore
-    key = _path_to_prefix(path) + group_meta_key
-    store[key] = encode_group_metadata(meta)
+    key = _prefix_to_group_key(store, _path_to_prefix(path))
+    store[key] = store._metadata_class.encode_group_metadata(meta)
 
 
 def _dict_store_keys(d: Dict, prefix="", cls=dict):
@@ -1808,7 +1919,7 @@ def migrate_1to2(store):
     del meta['compression_opts']
 
     # store migrated metadata
-    store[array_meta_key] = encode_array_metadata(meta)
+    store[array_meta_key] = store._metadata_class.encode_array_metadata(meta)
 
     # migrate user attributes
     store[attrs_key] = store['attrs']
@@ -2986,3 +3097,263 @@ class ConsolidatedMetadataStore(Store):
 
     def listdir(self, path):
         return listdir(self.meta_store, path)
+
+
+""" versions of stores following the v3 protocol """
+
+class StoreV3(Store):
+    _store_version = 3
+    _metadata_class = Metadata3
+
+    @staticmethod
+    def _valid_key(key: str) -> bool:
+        """
+        Verify that a key conforms to the specification.
+
+        A key is any string containing only character in the range a-z, A-Z,
+        0-9, or in the set /.-_ it will return True if that's the case, False
+        otherwise.
+
+        In addition, in spec v3, keys can only start with the prefix meta/,
+        data/ or be exactly zarr.json and should not end with /. This should
+        not be exposed to the user, and is a store implementation detail, so
+        this method will raise a ValueError in that case.
+        """
+        if sys.version_info > (3, 7):
+            if not key.isascii():
+                return False
+        if set(key) - set(ascii_letters + digits + "/.-_"):
+            return False
+
+        if (
+            not key.startswith("data/")
+            and (not key.startswith("meta/"))
+            and (not key == "zarr.json")
+        ):
+            raise ValueError("keys starts with unexpected value: `{}`".format(key))
+
+        if key.endswith('/'):
+            raise ValueError("keys may not end in /")
+
+        return True
+
+    def get(self, key: str):
+        """
+        default implementation of get that validate the key, a
+        check that the return value by bytes. This relies on ``def _get(key)``
+        to be implmented.
+
+        Will ensure that the following are correct:
+            - return group metadata objects are json and contain a single
+              `attributes` key.
+        """
+        assert self._valid_key(key), key
+        result = self._get(key)
+        assert isinstance(result, bytes), "Expected bytes, got {}".format(result)
+        if key == "zarr.json":
+            v = json.loads(result.decode())
+            assert set(v.keys()) == {
+                "zarr_format",
+                "metadata_encoding",
+                "metadata_key_suffix",
+                "extensions",
+            }, "v is {}".format(v)
+        elif key.endswith("/.group"):
+            v = json.loads(result.decode())
+            assert set(v.keys()) == {"attributes"}, "got unexpected keys {}".format(
+                v.keys()
+            )
+        return result
+
+    def set(self, key: str, value: bytes):
+            """
+            default implementation of set that validates the key, and
+            checks that the return value by bytes. This relies on
+            `def _set(key, value)` to be implmented.
+
+            Will ensure that the following are correct:
+                - set group metadata objects are json and contain a single
+                  `attributes` key.
+            """
+            if key == "zarr.json":
+                v = json.loads(value.decode())
+                assert set(v.keys()) == {
+                    "zarr_format",
+                    "metadata_encoding",
+                    "metadata_key_suffix",
+                    "extensions",
+                }, "v is {}".format(v)
+            elif key.endswith(".array"):
+                v = json.loads(value.decode())
+                expected = {
+                    "shape",
+                    "data_type",
+                    "chunk_grid",
+                    "chunk_memory_layout",
+                    "compressor",
+                    "fill_value",
+                    "extensions",
+                    "attributes",
+                }
+                current = set(v.keys())
+                current = current - {'dimension_separator'}  # TODO: ignore possible extra dimension_separator entry in .array
+                # ets do some conversions.
+                assert current == expected, "{} extra, {} missing in {}".format(
+                    current - expected, expected - current, v
+                )
+
+            assert isinstance(value, bytes)
+            assert self._valid_key(key)
+            self._set(key, value)
+
+    def list_prefix(self, prefix):
+        if prefix.startswith('/'):
+            raise ValueError("prefix must not begin with /")
+        return [k for k in self.list() if k.startswith(prefix)]
+
+    def erase(self, key):
+        self.__delitem__(key)
+
+    #def erase(self, key):
+    #    del self._mutable_mapping[key]
+
+    def erase_prefix(self, prefix):
+        assert prefix.endswith("/")
+
+        if prefix == "/":
+            all_keys = self.list()
+        else:
+            all_keys = self.list_prefix(prefix)
+        for key in all_keys:
+            self.erase(key)
+
+    # TODO: what was this for? (was in Matthias's v3 branch)
+    # def initialize(self):
+    #     pass
+
+    def list_dir(self, prefix):
+        """
+        Note: carefully test this with trailing/leading slashes
+        """
+        if prefix:  # allow prefix = "" ?
+            assert prefix.endswith("/")
+
+        all_keys = self.list_prefix(prefix)
+        len_prefix = len(prefix)
+        keys = []
+        prefixes = []
+        for k in all_keys:
+            trail = k[len_prefix:]
+            if "/" not in trail:
+                keys.append(prefix + trail)
+            else:
+                prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
+        return keys, list(set(prefixes))
+
+    # Remove? This method is just to match the current V2 stores
+    # The v3 spec mentions: list, list_dir, list_prefix
+    def listdir(self, path: str = ""):  # to override inherited v2 listdir
+        # TODO: just call list_dir or raise NotImpelementedError?
+        if path and not path.endswith("/"):
+            path = path + "/"
+        keys, prefixes = self.list_dir(path)
+        prefixes = [p[len(path):].rstrip("/") for p in prefixes]
+        keys = [k[len(path):] for k in keys]
+        return keys + prefixes
+
+    # TODO: this was in Matthias's branch, but may want to just keep __contains__ only
+    #def contains(self, key):
+    #    assert key.startswith(("meta/", "data/")), "Got {}".format(key)
+    #    return key in self.list()
+
+    def __contains__(self, key):
+        # TODO: re-enable this check?
+        # if not key.startswith(("meta/", "data/")):
+        #     raise ValueError(
+        #         f'Key must start with either "meta/" or "data/". '
+        #         f'Got {key}'
+        #     )
+        return key in self.list()
+
+    def clear(self):
+        """Remove all items from store."""
+        self.erase_prefix("/")
+
+
+class KVStoreV3(KVStore, StoreV3):
+
+    def list(self):
+        return list(self._mutable_mapping.keys())
+
+
+class FSStoreV3(FSStore, StoreV3):
+
+    # TODO: update these meta keys
+    _META_KEYS = ()  # FSStore only uses this within normalize_key
+
+    def list(self):
+        return list(self.keys())
+
+    def _normalize_key(self, key):
+        key = normalize_storage_path(key).lstrip('/')
+        return key.lower() if self.normalize_keys else key
+
+    def listdir(self, path=None):
+        raise NotImplementedError("TODO: update this function for V3")
+        # TODO: require leading '/'?
+        path = normalize_storage_path(path)
+        dir_path = self.dir_path(path)
+        is_data_path = path.startswith('data')
+        try:
+            children = sorted(p.rstrip('/').rsplit('/', 1)[-1]
+                              for p in self.fs.ls(dir_path, detail=False))
+            if is_data_path:
+                meta_path = path.replace('data', 'meta', 1)
+                meta_dir_path = self.dir_path(meta_path)
+                path_is_group = self.fs.isdir(meta_dir_path)
+                if not path_is_group:
+                    array_meta_path = meta_dir_path + '.array.json'
+                    path_is_array = self.fs.exists(array_meta_path)
+
+            if path_is_array:
+                key_separator = json_loads(array_meta_path)
+            if self.key_separator != "/":
+                return children
+            else:
+                if array_meta_key in children:
+                    # special handling of directories containing an array to map nested chunk
+                    # keys back to standard chunk keys
+                    new_children = []
+                    root_path = self.dir_path(path)
+                    for entry in children:
+                        entry_path = os.path.join(root_path, entry)
+                        if _prog_number.match(entry) and self.fs.isdir(entry_path):
+                            for file_name in self.fs.find(entry_path):
+                                file_path = os.path.join(dir_path, file_name)
+                                rel_path = file_path.split(root_path)[1]
+                                new_children.append(rel_path.replace(os.path.sep, '.'))
+                        else:
+                            new_children.append(entry)
+                    return sorted(new_children)
+                else:
+                    return children
+        except IOError:
+            return []
+
+    # def list_dir(self, prefix):
+    #     """
+    #     Note: carefully test this with trailing/leading slashes
+    #     """
+    #     assert prefix.endswith("/")
+
+    #     all_keys = self.list_prefix(prefix)
+    #     len_prefix = len(prefix)
+    #     keys = []
+    #     prefixes = []
+    #     for k in all_keys:
+    #         trail = k[len_prefix:]
+    #         if "/" not in trail:
+    #             keys.append(prefix + trail)
+    #         else:
+    #             prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
+    #     return keys, list(set(prefixes))
