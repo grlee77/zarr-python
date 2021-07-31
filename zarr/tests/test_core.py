@@ -18,6 +18,7 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
+from zarr.indexing import BoundsCheckError
 from zarr.meta import json_loads
 from zarr.n5 import N5Store, n5_keywords
 from zarr.storage import (
@@ -2697,16 +2698,17 @@ class TestArrayWithPathV3(unittest.TestCase):
 
         # initialize at path
         store = KVStoreV3(dict())
-        init_array(store, shape=100, chunks=10, path='meta/root/foo/bar', dtype='<f8')
-        a = Array(store, path='meta/root/foo/bar')
+        path = 'foo/bar'
+        init_array(store, shape=100, chunks=10, path=path, dtype='<f8')
+        a = Array(store, path=path)
         assert isinstance(a, Array)
         assert (100,) == a.shape
         assert (10,) == a.chunks
-        assert 'meta/root/foo/bar' == a.path
-        assert '/meta/root/foo/bar' == a.name
+        assert path == a.path  # TODO: should this include meta/root?
+        assert '/' + path == a.name  # TODO: should this include meta/root?
         assert 'bar' == a.basename
         assert store is a.store
-        assert "dda1ae0808f04f48dfaa6b9385851923a5683ea2" == a.hexdigest()
+        assert "76e0a23507b70172d9d228545a64641bb9d7c802" == a.hexdigest()
 
         # store not initialized
         store = KVStoreV3(dict())
@@ -2715,7 +2717,7 @@ class TestArrayWithPathV3(unittest.TestCase):
 
         # group is in the way
         store = KVStoreV3(dict())
-        path = 'meta/root/baz'
+        path = 'baz'
         init_group(store, path=path)
         # can't open with an uninitialized array
         with pytest.raises(ArrayNotFoundError):
@@ -2723,15 +2725,16 @@ class TestArrayWithPathV3(unittest.TestCase):
         # can't open at same path as an existing group
         with pytest.raises(ContainsGroupError):
             init_array(store, shape=100, chunks=10, path=path, dtype='<f8')
-        assert (path + '.group') in store
-        del store[path + '.group']
+        group_key = 'meta/root/' + path + '.group.json'
+        assert group_key in store
+        del store[group_key]
         init_array(store, shape=100, chunks=10, path=path, dtype='<f8')
         Array(store, path=path)
-        assert (path + '.group') not in store
-        assert (path + '.array.json') in store
+        assert group_key not in store
+        assert ('meta/root/' + path + '.array.json') in store
 
     @staticmethod
-    def create_array(path='meta/root/arr1', read_only=False, **kwargs):
+    def create_array(path='arr1', read_only=False, **kwargs):
         store = KVStoreV3(dict())
         kwargs.setdefault('compressor', Zlib(level=1))
         cache_metadata = kwargs.pop('cache_metadata', True)
@@ -2786,7 +2789,6 @@ class TestArrayWithPathV3(unittest.TestCase):
 
         z.store.close()
 
-    # IDENTICAL TO V2 CASE
     def test_nbytes_stored(self):
 
         # dict as store
@@ -2796,18 +2798,20 @@ class TestArrayWithPathV3(unittest.TestCase):
         z[:] = 42
         expect_nbytes_stored = sum(buffer_size(v) for v in z.store.values())
         assert expect_nbytes_stored == z.nbytes_stored
+        assert z.nchunks_initialized == 10  # TODO: added temporarily for testing, can remove
 
         # mess with store
         try:
-            z.store[z._key_prefix + 'foo'] = list(range(10))
+            z.store['data/root/' + z._key_prefix + 'foo'] = list(range(10))  # modified vs. v2
             assert -1 == z.nbytes_stored
         except TypeError:
             pass
 
         z.store.close()
 
+    # ALMOST IDENTICAL: ONLY HAD TO UPDATE THE ATTRIBUTES CHECK
+
     # noinspection PyStatementEffect
-    # IDENTICAL TO V2 CASE
     def test_array_1d(self):
         a = np.arange(1050)
         z = self.create_array(shape=a.shape, chunks=100, dtype=a.dtype)
@@ -2829,9 +2833,23 @@ class TestArrayWithPathV3(unittest.TestCase):
         assert a.shape == b.shape
         assert a.dtype == b.dtype
 
-        # check attributes
-        z.attrs['foo'] = 'bar'
-        assert 'bar' == z.attrs['foo']
+        # check attributes  # modified vs. v2
+        with pytest.raises(ValueError):  # TODO: how to handle Attributes for v3. update array metadata?
+            z.attrs['foo'] = 'bar'
+            # assert 'bar' == z.attrs['foo']
+            # assert 'bar' == z.attrs['foo']
+
+        if False:  # TODO: remove this block or replace with public API
+            z._attributes['foo'] = 'bar'
+            assert 'bar' == z._attributes['foo']
+            z._load_metadata()  # was not stored in the array metadata yet
+            assert 'foo' not in z._attributes
+
+            z._attributes['foo'] = 'bar'
+            assert 'bar' == z._attributes['foo']
+            z._flush_metadata_nosync()  # write out to the array metadata file
+            z._load_metadata()
+            assert 'bar' == z._attributes['foo']
 
         # set data
         z[:] = a
@@ -2880,6 +2898,10 @@ class TestArrayWithPathV3(unittest.TestCase):
         # only single ellipsis allowed
         with pytest.raises(IndexError):
             z[..., ...]
+        with pytest.raises(BoundsCheckError):
+            z[z.size]
+        with pytest.raises(BoundsCheckError):
+            z[-z.size - 1]
 
         # check partial assignment
         b = np.arange(1e5, 2e5)

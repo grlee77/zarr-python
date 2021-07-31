@@ -219,6 +219,21 @@ def _prefix_to_array_key(store: Store, prefix: str) -> str:
     return key
 
 
+def _prefix_to_array_data_key(store: Store, prefix: str) -> str:
+    if getattr(store, "_store_version", 2) == 3:
+        if prefix:
+            # key = prefix.rstrip('/') + ".array.json"
+            key = "data/root/" + prefix.rstrip("/") + ".array.json"
+        else:
+            key = "data/root.array.json"  #TODO: should empty path be allowed?
+            raise ValueError(
+                "prefix must be supplied to initialize a zarr v3 array"
+            )
+    else:
+        raise NotImplementedError(
+            "_prefix_to_array_data_key only implemented for v3")
+
+
 def contains_array(store: Store, path: Path = None) -> bool:
     """Return True if the store contains an array at the given logical path."""
     path = normalize_storage_path(path)
@@ -252,17 +267,18 @@ def contains_group(store: Store, path: Path = None) -> bool:
 
 def _prefix_to_attrs_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
+        # for v3, attributes are stored in the array metadata
         if prefix:
-            key = "meta/root/" + prefix + ".array"
+            key = "meta/root/" + prefix + ".array.json"
         else:
-            key = "meta/root.array"
+            key = "meta/root.array.json"
     else:
         key = prefix + attrs_key
     return key
 
 
 def _rmdir_from_keys(store: Store, path: Optional[str] = None) -> None:
-    if store._store_version == 3:
+    if getattr(store, '_store_version', 2) == 3:
         prefix = _path_to_prefix(path)
         for key in list(store.keys()):
             if key.startswith(prefix):
@@ -279,7 +295,7 @@ def rmdir(store: Store, path: Path = None):
     """Remove all items under the given path. If `store` provides a `rmdir` method,
     this will be called, otherwise will fall back to implementation via the
     `Store` interface."""
-    if store._store_version == 2:
+    if getattr(store, '_store_version', 2) == 2:
         path = normalize_storage_path(path)
         if hasattr(store, "rmdir") and store.is_erasable():
             # pass through
@@ -351,11 +367,12 @@ def listdir(store: Store, path: Path = None):
     `MutableMapping` interface."""
     path = normalize_storage_path(path)
     if getattr(store, "_store_version", None) == 3:
+        1 / 0
         if not path.endswith("/"):
             path = path + "/"
         assert path.startswith("/")
 
-        res = {_norm_v3(k[10:]) for k in store.list_dir(path[1:])}  # "meta/root" + path)}
+        res = {_norm_v3(k) for k in store.list_dir(path)}  # "meta/root" + path)}
         for r in res:
             assert not r.startswith("meta/")
         return res
@@ -386,19 +403,41 @@ def getsize(store: Store, path: Path = None) -> int:
             v = store[path]
             size = buffer_size(v)
         else:
-            members = listdir(store, path)
-            prefix = _path_to_prefix(path)
-            size = 0
-            for k in members:
-                try:
-                    v = store[prefix + k]
-                except KeyError:
-                    pass
-                else:
+            if getattr(store, '_store_version', 2) == 3:
+                size = 0
+                # array_key = 'meta/root/' + path + '.array.json'
+                # if array_key in store:
+                #     size += buffer_size(store[array_key])
+                # group_key = 'meta/root/' + path + '.group.json'
+                # if group_key in store:
+                #     size += buffer_size(store[group_key])
+                # prefix = _path_to_prefix(path)
+                members = store.list_prefix('data/root/' + path)
+                members += store.list_prefix('meta/root/' + path)
+                for k in members:
                     try:
-                        size += buffer_size(v)
-                    except TypeError:
-                        return -1
+                        v = store[k]
+                    except KeyError:
+                        pass
+                    else:
+                        try:
+                            size += buffer_size(v)
+                        except TypeError:
+                            return -1
+            else:
+                members = listdir(store, path)
+                prefix = _path_to_prefix(path)
+                size = 0
+                for k in members:
+                    try:
+                        v = store[prefix + k]
+                    except KeyError:
+                        pass
+                    else:
+                        try:
+                            size += buffer_size(v)
+                        except TypeError:
+                            return -1
         return size
     else:
         return -1
@@ -579,7 +618,7 @@ def _init_array_metadata(
     dimension_separator=None,
 ):
 
-    if store._store_version == 2:
+    if getattr(store, '_store_version', 2) == 2:
 
         # guard conditions
         if overwrite:
@@ -621,7 +660,7 @@ def _init_array_metadata(
     fill_value = normalize_fill_value(fill_value, dtype)
 
     # optional array metadata
-    if dimension_separator is None and store._store_version == 2:
+    if dimension_separator is None and getattr(store, '_store_version', 2) == 2:
         dimension_separator = getattr(store, "_dimension_separator", None)
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
@@ -674,7 +713,7 @@ def _init_array_metadata(
     meta = dict(shape=shape, compressor=compressor_config,
                 fill_value=fill_value, filters=filters_config,
                 dimension_separator=dimension_separator)
-    if store._store_version < 3:
+    if getattr(store, '_store_version', 2) < 3:
         meta.update(dict(chunks=chunks, dtype=dtype, order=order))
     else:
         if dimension_separator is None:
@@ -691,7 +730,7 @@ def _init_array_metadata(
 
     key = _prefix_to_array_key(store, _path_to_prefix(path))
     store[key] = store._metadata_class.encode_array_metadata(meta)
-    #if store._store_version == 3:
+    #if getattr(store, '_store_version', 2) == 3:
     #    data_key = key.replace('meta/', 'data/', 1)
     #    store[data_key]
 
@@ -726,7 +765,7 @@ def init_group(
     # normalize path
     path = normalize_storage_path(path)
 
-    if store._store_version < 3:
+    if getattr(store, '_store_version', 2) < 3:
         # ensure parent group initialized
         _require_parent_group(path, store=store, chunk_store=chunk_store,
                               overwrite=overwrite)
@@ -743,21 +782,14 @@ def _init_group_metadata(
     chunk_store: Store = None,
 ):
 
-    if store._store_version == 2:
+    if getattr(store, '_store_version', 2) == 2:
         # guard conditions
         if overwrite:
             # attempt to delete any pre-existing items in store
             rmdir(store, path)
             if chunk_store is not None:
-                if store._store_version < 3:
-                    data_path = path
-                else:
-                    assert path.startswith('meta/')
-                    data_path = 'data/' + path[5:]
-                rmdir(chunk_store, data_path)
-
+                rmdir(chunk_store, path)
     else:
-
         # guard conditions
         if overwrite:
             group_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
@@ -783,7 +815,7 @@ def _init_group_metadata(
     # initialize metadata
     # N.B., currently no metadata properties are needed, however there may
     # be in future
-    if store._store_version == 3:
+    if getattr(store, '_store_version', 2) == 3:
         meta = {'attributes': {}}  # type: ignore
     else:
         meta = {}  # type: ignore
