@@ -238,6 +238,9 @@ class Metadata3(Metadata2):
         # The ZARR_FORMAT should not be in the group metadata, but in the
         # entry point metadata instead
         # meta = dict(zarr_format=cls.ZARR_FORMAT)
+        if meta is None:
+            meta = {'attributes': {}}
+        meta = dict(attributes=meta.get("attributes", {}))
         return json_dumps(meta)
 
     @classmethod
@@ -267,6 +270,7 @@ class Metadata3(Metadata2):
                 fill_value=fill_value,
                 chunk_memory_layout=meta["chunk_memory_layout"],
                 dimension_separator=meta.get("dimension_separator", "/"),
+                attributes=meta["attributes"],
             )
             # dimension_separator = meta.get("dimension_separator", None)
             # if dimension_separator:
@@ -296,6 +300,7 @@ class Metadata3(Metadata2):
             fill_value=encode_fill_value(meta["fill_value"], dtype),
             chunk_memory_layout=meta["chunk_memory_layout"],
             filters=meta["filters"],
+            attributes=meta.get("attributes", {}),
         )
         if dimension_separator:
             meta["dimension_separator"] = dimension_separator

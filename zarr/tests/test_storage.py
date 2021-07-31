@@ -17,7 +17,7 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 from numcodecs.compat import ensure_bytes
 
 from zarr.codecs import BZ2, AsType, Blosc, Zlib
-from zarr.errors import MetadataError
+from zarr.errors import ContainsArrayError, ContainsGroupError, MetadataError
 from zarr.hierarchy import group
 from zarr.meta import (ZARR_FORMAT, ZARR_FORMAT_v3, decode_array_metadata,
                        decode_group_metadata, encode_array_metadata,
@@ -794,13 +794,14 @@ class StoreV3Tests(StoreTests):
         pass_dim_sep, want_dim_sep = dimension_separator_fixture_v3
 
         store = self.create_store()
-        path = 'meta/root/arr1'
+        path = 'arr1'
         init_array(store, path=path, shape=1000, chunks=100,
                    dimension_separator=pass_dim_sep)
 
         # check metadata
-        assert (path + '.array.json') in store
-        meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+        mkey = 'meta/root/' + path + '.array.json'
+        assert mkey in store
+        meta = store._metadata_class.decode_array_metadata(store[mkey])
         assert ZARR_FORMAT_v3 == meta['zarr_format']  # TODO: already stored at the heirarchy level should we also keep it in the .array.json?
         assert (1000,) == meta['shape']
         assert (100,) == meta['chunk_grid']['chunk_shape']
@@ -823,9 +824,9 @@ class StoreV3Tests(StoreTests):
             path = None
             _array_meta_key = array_meta_key
         else:
-            path = 'meta/root/arr1'  # no default, have to specify for v3
-            _array_meta_key = path + '.array.json'
-        store[_array_meta_key] = store._metadata_class.encode_array_metadata(
+            path = 'arr1'  # no default, have to specify for v3
+            mkey = 'meta/root/' + path + '.array.json'
+        store[mkey] = store._metadata_class.encode_array_metadata(
             dict(shape=(2000,),
                  chunk_grid=dict(type='regular',
                                  chunk_shape=(200,),
@@ -838,7 +839,7 @@ class StoreV3Tests(StoreTests):
         )
 
         # don't overwrite (default)
-        with pytest.raises(ValueError):
+        with pytest.raises(ContainsArrayError):
             init_array(store, path=path, shape=1000, chunks=100)
 
         # do overwrite
@@ -848,10 +849,10 @@ class StoreV3Tests(StoreTests):
         except NotImplementedError:
             pass
         else:
-            assert _array_meta_key in store
+            assert mkey in store
             # meta = decode_array_metadata(store[_array_meta_key])
             meta = store._metadata_class.decode_array_metadata(
-                store[_array_meta_key]
+                store[mkey]
             )
             assert (1000,) == meta['shape']
             if store._store_version == 2:
@@ -870,14 +871,14 @@ class StoreV3Tests(StoreTests):
 
     def test_init_array_path(self):
         # TODO: raise error if path starts with '/'
-        path = 'meta/root/foo/bar'  # TODO: have to specify meta/root/ here?
+        path = 'foo/bar'  # TODO: have to specify meta/root/ here?
         store = self.create_store()
         init_array(store, shape=1000, chunks=100, path=path)
 
         # check metadata
-        key = path + '.array.json'
-        assert key in store
-        meta = store._metadata_class.decode_array_metadata(store[key])
+        mkey = 'meta/root/' + path + '.array.json'
+        assert mkey in store
+        meta = store._metadata_class.decode_array_metadata(store[mkey])
         assert ZARR_FORMAT_v3 == meta['zarr_format']
         assert (1000,) == meta['shape']
         assert (100,) == meta['chunk_grid']['chunk_shape']
@@ -889,7 +890,7 @@ class StoreV3Tests(StoreTests):
 
     def _test_init_array_overwrite_path(self, order):
         # setup
-        path = 'meta/root/foo/bar'  # TODO: have to specify meta/root/ here?
+        path = 'foo/bar'  # TODO: have to specify meta/root/ here?
         store = self.create_store()
         meta = dict(shape=(2000,),
                     chunk_grid=dict(type='regular',
@@ -900,10 +901,11 @@ class StoreV3Tests(StoreTests):
                     fill_value=0,
                     chunk_memory_layout=order,
                     filters=None)
-        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(meta)
+        mkey = 'meta/root/' + path + '.array.json'
+        store[mkey] = store._metadata_class.encode_array_metadata(meta)
 
         # don't overwrite
-        with pytest.raises(ValueError):
+        with pytest.raises(ContainsArrayError):
             init_array(store, shape=1000, chunks=100, path=path)
 
         # do overwrite
@@ -913,9 +915,9 @@ class StoreV3Tests(StoreTests):
         except NotImplementedError:
             pass
         else:
-            assert (path + '.array.json') in store
+            assert mkey in store
             # should have been overwritten
-            meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+            meta = store._metadata_class.decode_array_metadata(store[mkey])
             assert ZARR_FORMAT_v3 == meta['zarr_format']
             assert (1000,) == meta['shape']
             assert (100,) == meta['chunk_grid']['chunk_shape']
@@ -925,13 +927,14 @@ class StoreV3Tests(StoreTests):
 
     def test_init_array_overwrite_group(self):
         # setup
-        path = 'meta/root/foo/bar'
+        path = 'foo/bar'
         store = self.create_store()
-        store[path + '.group'] = store._metadata_class.encode_group_metadata()
+        array_key = 'meta/root/' + path + '.array.json'
+        group_key = 'meta/root/' + path + '.group.json'
+        store[group_key] = store._metadata_class.encode_group_metadata()
 
-        # can init an array with the same path, due to differing extension?
-        # TODO: verify this is the expected behavior
-        init_array(store, shape=1000, chunks=100, path=path)
+        with pytest.raises(ContainsGroupError):
+            init_array(store, shape=1000, chunks=100, path=path)
 
         # do overwrite
         try:
@@ -940,10 +943,10 @@ class StoreV3Tests(StoreTests):
         except NotImplementedError:
             pass
         else:
-            assert (path + '.group') in store
-            assert (path + '.array.json') in store
+            assert group_key in store
+            assert array_key in store
             meta = store._metadata_class.decode_array_metadata(
-                store[path + '.array.json']
+                store[array_key]
             )
             assert ZARR_FORMAT_v3 == meta['zarr_format']
             assert (1000,) == meta['shape']
@@ -956,8 +959,9 @@ class StoreV3Tests(StoreTests):
         # setup
         store = self.create_store()
         chunk_store = self.create_store()
-        path = 'meta/root/arr1'
-        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(
+        path = 'arr1'
+        mkey = 'meta/root/' + path + '.array.json'
+        store[mkey] = store._metadata_class.encode_array_metadata(
             dict(shape=(2000,),
                  chunk_grid=dict(type='regular',
                                  chunk_shape=(200,),
@@ -968,6 +972,8 @@ class StoreV3Tests(StoreTests):
                  filters=None,
                  chunk_memory_layout=order)
         )
+
+        # TODO: specify data/root/ as part of the key here?
         chunk_store['data/root/arr1/0'] = b'aaa'
         chunk_store['data/root/arr1/1'] = b'bbb'
 
@@ -985,8 +991,8 @@ class StoreV3Tests(StoreTests):
         except NotImplementedError:
             pass
         else:
-            assert (path + '.array.json') in store
-            meta = store._metadata_class.decode_array_metadata(store[path + '.array.json'])
+            assert mkey in store
+            meta = store._metadata_class.decode_array_metadata(store[mkey])
             assert ZARR_FORMAT_v3 == meta['zarr_format']
             assert (1000,) == meta['shape']
             assert (100,) == meta['chunk_grid']['chunk_shape']
@@ -999,10 +1005,11 @@ class StoreV3Tests(StoreTests):
 
     def test_init_array_compat(self):
         store = self.create_store()
-        path = 'meta/root/arr1'
+        path = 'arr1'
         init_array(store, path=path, shape=1000, chunks=100, compressor='none')
+        mkey = 'meta/root/' + path + '.array.json'
         meta = store._metadata_class.decode_array_metadata(
-            store[path + '.array.json']
+            store[mkey]
         )
         assert meta['compressor'] is None
 
@@ -1016,9 +1023,10 @@ class StoreV3Tests(StoreTests):
         init_group(store, path=path)
 
         # check metadata
-        assert (path + ".group") in store
-        meta = store._metadata_class.decode_group_metadata(store[path + '.group'])
-        assert meta == {}
+        mkey = 'meta/root/' + path + '.group.json'
+        assert mkey in store
+        meta = store._metadata_class.decode_group_metadata(store[mkey])
+        assert meta == {'attributes': {}}
 
         store.close()
 
@@ -1029,7 +1037,7 @@ class StoreV3Tests(StoreTests):
 
     def _test_init_group_overwrite_path(self, order):
         # setup
-        path = 'meta/root/foo/bar'  # TODO: make sure group path doesn't start with /
+        path = 'foo/bar'  # TODO: make sure group path doesn't start with /
         store = self.create_store()
         meta = dict(
             shape=(2000,),
@@ -1042,11 +1050,12 @@ class StoreV3Tests(StoreTests):
             filters=None,
             chunk_memory_layout=order,
         )
-        store[path + '.array.json'] = store._metadata_class.encode_array_metadata(meta)
-        init_group(store, path=path)  # /meta/root/foo/bar.group
+        array_key = 'meta/root/' + path + '.array.json'
+        group_key = 'meta/root/' + path + '.group.json'
+        store[array_key] = store._metadata_class.encode_array_metadata(meta)
 
         # don't overwrite
-        with pytest.raises(ValueError):
+        with pytest.raises(ContainsArrayError):
             init_group(store, path=path)
 
         # do overwrite
@@ -1055,12 +1064,12 @@ class StoreV3Tests(StoreTests):
         except NotImplementedError:
             pass
         else:
-            assert (path + '.array.json') in store
-            assert (path + '.group') in store
+            assert array_key not in store
+            assert group_key in store
             # should have been overwritten
-            meta = store._metadata_class.decode_group_metadata(store[path + '.group'])
+            meta = store._metadata_class.decode_group_metadata(store[group_key])
             #assert ZARR_FORMAT == meta['zarr_format']
-            assert meta == {}
+            assert meta == {'attributes': {}}
 
         store.close()
 

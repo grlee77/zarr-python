@@ -230,10 +230,10 @@ def contains_array(store: Store, path: Path = None) -> bool:
 def _prefix_to_group_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
         if prefix:
-            # key = prefix.rstrip('/') + ".group"
-            key = "meta/root/" + prefix.rstrip('/') + ".group"
+            # key = prefix.rstrip('/') + ".group.json"
+            key = "meta/root/" + prefix.rstrip('/') + ".group.json"
         else:
-            key = "meta/root.group"  # TODO: should empty path be allowed?
+            key = "meta/root.group.json"  # TODO: should empty path be allowed?
             raise ValueError(
                 "prefix must be supplied to initialize a zarr v3 group"
             )
@@ -279,14 +279,16 @@ def rmdir(store: Store, path: Path = None):
     """Remove all items under the given path. If `store` provides a `rmdir` method,
     this will be called, otherwise will fall back to implementation via the
     `Store` interface."""
-    path = normalize_storage_path(path)
-    if hasattr(store, "rmdir") and store.is_erasable():
-        # pass through
-        store.rmdir(path)  # type: ignore
+    if store._store_version == 2:
+        path = normalize_storage_path(path)
+        if hasattr(store, "rmdir") and store.is_erasable():
+            # pass through
+            store.rmdir(path)  # type: ignore
+        else:
+            # slow version, delete one key at a time
+            _rmdir_from_keys(store, path)
     else:
-        # slow version, delete one key at a time
-        _rmdir_from_keys(store, path)
-
+        raise NotImplementedError("TODO?")
 
 def _rename_from_keys(store: Store, src_path: str, dst_path: str) -> None:
     # assume path already normalized
@@ -325,11 +327,22 @@ def _listdir_from_keys(store: Store, path: Optional[str] = None) -> List[str]:
 
 
 def _norm(k):
+    # normalize for v2 keys
     if k.endswith(".group"):
         return k[:-6] + "/"
-    if k.endswith(".array"):
+    elif k.endswith(".array"):
         return k[:-6]
     return k
+
+
+def _norm_v3(k):
+    # normalize for v3 keys
+    if k.endswith(".group.json"):
+        return k[:-11] + "/"
+    elif k.endswith(".array.json"):
+        return k[:-11]
+    elif k.startswith('/meta/root/', '/data/root/'):
+        return k[10:]
 
 
 def listdir(store: Store, path: Path = None):
@@ -342,7 +355,7 @@ def listdir(store: Store, path: Path = None):
             path = path + "/"
         assert path.startswith("/")
 
-        res = {_norm(k[10:]) for k in store.list_dir(path[1:])}  # "meta/root" + path)}
+        res = {_norm_v3(k[10:]) for k in store.list_dir(path[1:])}  # "meta/root" + path)}
         for r in res:
             assert not r.startswith("meta/")
         return res
@@ -566,24 +579,38 @@ def _init_array_metadata(
     dimension_separator=None,
 ):
 
-    # guard conditions
-    if overwrite:
-        # attempt to delete any pre-existing items in store
-        meta_key = _prefix_to_array_key(_path_to_prefix(store, path)
-        dkey = mkey.replace('meta/', 'data/')
-        rmdir(store, path)
-        if chunk_store is not None:
-            if store._store_version < 3:
-                data_path = path
-            else:
-                assert path.startswith('meta/')
-                data_path = 'data/' + path[5:]
-            rmdir(chunk_store, data_path)
-    elif contains_array(store, path):
-        raise ContainsArrayError(path)
-    # elif store._store_version == 2 and contains_group(store, path):
-    elif contains_group(store, path):
-        raise ContainsGroupError(path)
+    if store._store_version == 2:
+
+        # guard conditions
+        if overwrite:
+            # attempt to delete any pre-existing array in store
+            rmdir(store, path)
+            if chunk_store is not None:
+                rmdir(chunk_store, path)
+
+    else:
+
+        # guard conditions
+        if overwrite:
+            group_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            array_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            data_prefix = 'data/root/' + _path_to_prefix(path)
+
+            # attempt to delete any pre-existing array in store
+            if array_meta_key in store:
+                store.erase(array_meta_key)
+            if group_meta_key in store:
+                store.erase(group_meta_key)
+            store.erase_prefix(data_prefix)
+            if chunk_store is not None:
+                chunk_store.erase_prefix(data_prefix)
+
+    if not overwrite:
+        if contains_array(store, path):
+            raise ContainsArrayError(path)
+        # elif store._store_version == 2 and contains_group(store, path):
+        elif contains_group(store, path):
+            raise ContainsGroupError(path)
 
     # normalize metadata
     dtype, object_codec = normalize_dtype(dtype, object_codec)
@@ -657,7 +684,8 @@ def _init_array_metadata(
                                  chunk_shape=chunks,
                                  separator=dimension_separator),
                  chunk_memory_layout=order,
-                 data_type=dtype)
+                 data_type=dtype,
+                 attributes={})
         )
 
 
@@ -715,27 +743,50 @@ def _init_group_metadata(
     chunk_store: Store = None,
 ):
 
-    # guard conditions
-    if overwrite:
-        # attempt to delete any pre-existing items in store
-        rmdir(store, path)
-        if chunk_store is not None:
-            if store._store_version < 3:
-                data_path = path
-            else:
-                assert path.startswith('meta/')
-                data_path = 'data/' + path[5:]
-            rmdir(chunk_store, data_path)
-    # elif store._store_version == 2 and contains_array(store, path):
-    elif contains_array(store, path):
-        raise ContainsArrayError(path)
-    elif contains_group(store, path):
-        raise ContainsGroupError(path)
+    if store._store_version == 2:
+        # guard conditions
+        if overwrite:
+            # attempt to delete any pre-existing items in store
+            rmdir(store, path)
+            if chunk_store is not None:
+                if store._store_version < 3:
+                    data_path = path
+                else:
+                    assert path.startswith('meta/')
+                    data_path = 'data/' + path[5:]
+                rmdir(chunk_store, data_path)
+
+    else:
+
+        # guard conditions
+        if overwrite:
+            group_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            array_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            data_prefix = 'data/root/' + _path_to_prefix(path)
+
+            # attempt to delete any pre-existing array in store
+            if array_meta_key in store:
+                store.erase(array_meta_key)
+            if group_meta_key in store:
+                store.erase(group_meta_key)
+            store.erase_prefix(data_prefix)
+            if chunk_store is not None:
+                chunk_store.erase_prefix(data_prefix)
+
+    if not overwrite:
+        # if store._store_version == 2 and contains_array(store, path):
+        if contains_array(store, path):
+            raise ContainsArrayError(path)
+        elif contains_group(store, path):
+            raise ContainsGroupError(path)
 
     # initialize metadata
     # N.B., currently no metadata properties are needed, however there may
     # be in future
-    meta = dict()  # type: ignore
+    if store._store_version == 3:
+        meta = {'attributes': {}}  # type: ignore
+    else:
+        meta = {}  # type: ignore
     key = _prefix_to_group_key(store, _path_to_prefix(path))
     store[key] = store._metadata_class.encode_group_metadata(meta)
 
