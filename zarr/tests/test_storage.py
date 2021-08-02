@@ -24,10 +24,11 @@ from zarr.meta import (ZARR_FORMAT, ZARR_FORMAT_v3, decode_array_metadata,
                        encode_group_metadata)
 from zarr.n5 import N5Store
 from zarr.storage import (ABSStore, ConsolidatedMetadataStore, DBMStore,
-                          DictStore, DirectoryStore, KVStore, KVStoreV3,
-                          LMDBStore, LRUStoreCache, MemoryStore, MongoDBStore,
-                          NestedDirectoryStore, RedisStore, SQLiteStore,
-                          Store, TempStore, ZipStore,
+                          DictStore, DirectoryStore, DirectoryStoreV3, KVStore,
+                          KVStoreV3, LMDBStore, LRUStoreCache, MemoryStore,
+                          MemoryStoreV3,
+                          MongoDBStore, NestedDirectoryStore, RedisStore,
+                          SQLiteStore, Store, TempStore, ZipStore,
                           array_meta_key, atexit_rmglob, atexit_rmtree,
                           attrs_key, default_compressor, getsize,
                           group_meta_key, init_array, init_group, migrate_1to2)
@@ -1105,92 +1106,6 @@ class TestMappingStoreV3(StoreV3Tests):
 #         setdel_hierarchy_checks_v3(store)
 
 
-# class TestDirectoryStoreV3(StoreV3Tests):
-
-#     def create_store(self, normalize_keys=False, **kwargs):
-#         skip_if_nested_chunks(**kwargs)  # TODO: remove this skip for v3
-
-#         path = tempfile.mkdtemp()
-#         atexit.register(atexit_rmtree, path)
-#         store = DirectoryStore(path, normalize_keys=normalize_keys, **kwargs)
-#         return store
-
-#     def test_filesystem_path(self):
-
-#         # test behaviour with path that does not exist
-#         path = 'data/store'
-#         if os.path.exists(path):
-#             shutil.rmtree(path)
-#         store = DirectoryStore(path)
-#         # should only be created on demand
-#         assert not os.path.exists(path)
-#         store['foo'] = b'bar'
-#         assert os.path.isdir(path)
-
-#         # check correct permissions
-#         # regression test for https://github.com/zarr-developers/zarr-python/issues/325
-#         stat = os.stat(path)
-#         mode = stat.st_mode & 0o666
-#         umask = os.umask(0)
-#         os.umask(umask)
-#         assert mode == (0o666 & ~umask)
-
-#         # test behaviour with file path
-#         with tempfile.NamedTemporaryFile() as f:
-#             with pytest.raises(ValueError):
-#                 DirectoryStore(f.name)
-
-#     def test_pickle_ext(self):
-#         store = self.create_store()
-#         store2 = pickle.loads(pickle.dumps(store))
-
-#         # check path is preserved
-#         assert store.path == store2.path
-
-#         # check point to same underlying directory
-#         assert 'xxx' not in store
-#         store2['xxx'] = b'yyy'
-#         assert b'yyy' == ensure_bytes(store['xxx'])
-
-#     def test_setdel(self):
-#         store = self.create_store()
-#         setdel_hierarchy_checks(store)
-
-#     def test_normalize_keys(self):
-#         store = self.create_store(normalize_keys=True)
-#         store['FOO'] = b'bar'
-#         assert 'FOO' in store
-#         assert 'foo' in store
-
-#     def test_listing_keys_slash(self):
-
-#         def mock_walker_slash(_path):
-#             yield from [
-#                 # trailing slash in first key
-#                 ('root_with_slash/', ['d1', 'g1'], ['.zgroup']),
-#                 ('root_with_slash/d1', [], ['.zarray']),
-#                 ('root_with_slash/g1', [], ['.zgroup'])
-#             ]
-
-#         res = set(DirectoryStore._keys_fast('root_with_slash/', walker=mock_walker_slash))
-#         assert res == {'.zgroup', 'g1/.zgroup', 'd1/.zarray'}
-
-#     def test_listing_keys_no_slash(self):
-
-#         def mock_walker_no_slash(_path):
-#             yield from [
-#                 # no trainling slash in first key
-#                 ('root_with_no_slash', ['d1', 'g1'], ['.zgroup']),
-#                 ('root_with_no_slash/d1', [], ['.zarray']),
-#                 ('root_with_no_slash/g1', [], ['.zgroup'])
-#             ]
-
-#         res = set(
-#             DirectoryStore._keys_fast('root_with_no_slash', mock_walker_no_slash)
-#                 )
-#         assert res == {'.zgroup', 'g1/.zgroup', 'd1/.zarray'}
-
-
 def setdel_hierarchy_checks(store):
     # these tests are for stores that are aware of hierarchy levels; this
     # behaviour is not stricly required by Zarr but these tests are included
@@ -1242,6 +1157,13 @@ class TestMemoryStore(StoreTests):
     def test_setdel(self):
         store = self.create_store()
         setdel_hierarchy_checks(store)
+
+
+class TestMemoryStoreV3(TestMemoryStore, StoreV3Tests):
+
+    def create_store(self, **kwargs):
+        skip_if_nested_chunks(**kwargs)
+        return MemoryStoreV3(**kwargs)
 
 
 class TestDictStore(StoreTests):
@@ -1346,6 +1268,17 @@ class TestDirectoryStore(StoreTests):
             DirectoryStore._keys_fast('root_with_no_slash', mock_walker_no_slash)
                 )
         assert res == {'.zgroup', 'g1/.zgroup', 'd1/.zarray'}
+
+
+class TestDirectoryStoreV3(TestDirectoryStore, StoreV3Tests):
+
+    def create_store(self, normalize_keys=False, **kwargs):
+        skip_if_nested_chunks(**kwargs)  # TODO: remove this skip for v3
+
+        path = tempfile.mkdtemp()
+        atexit.register(atexit_rmtree, path)
+        store = DirectoryStoreV3(path, normalize_keys=normalize_keys, **kwargs)
+        return store
 
 
 @pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")

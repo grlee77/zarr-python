@@ -877,7 +877,7 @@ class KVStore(Store):
 
 
 class MemoryStore(Store):
-    """Store class that uses a hierarchy of :class:`dict` objects, thus all data
+    """Store class that uses a hierarchy of KVStore objects, thus all data
     will be held in main memory.
 
     Examples
@@ -890,7 +890,7 @@ class MemoryStore(Store):
         <class 'zarr.storage.MemoryStore'>
 
     Note that the default class when creating an array is the built-in
-    :class:`dict` class, i.e.::
+    :class:`KVStore` class, i.e.::
 
         >>> z = zarr.zeros(100)
         >>> type(z.store)
@@ -3146,6 +3146,10 @@ class ConsolidatedMetadataStore(Store):
     def __init__(self, store: Store, metadata_key=".zmetadata"):
         self.store = store
 
+        if getattr(store, '_store_version', 2) != 2:
+            raise ValueError("Can only consolidate stores corresponding to "
+                             "the Zarr v2 spec.")
+
         # retrieve consolidated metadata
         meta = json_loads(store[metadata_key])
 
@@ -3334,6 +3338,14 @@ class StoreV3(Store):
                 prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
         return keys, list(set(prefixes))
 
+
+    def list(self):
+        if hasattr(self, 'keys'):
+            return list(self.keys())
+        raise NotImplementedError(
+            "The list method has not been implemented for this store type."
+        )
+
     # Remove? This method is just to match the current V2 stores
     # The v3 spec mentions: list, list_dir, list_prefix
     def listdir(self, path: str = ""):  # to override inherited v2 listdir
@@ -3364,10 +3376,19 @@ class StoreV3(Store):
         self.erase_prefix("/")
 
 
+# Note: The KVStoreV3 method resolution order (MRO) will be as follows:
+# KVStoreV3.__mro__ == [zarr.storage.KVStoreV3,
+#                       zarr.storage.StoreV3,
+#                       zarr.storage.Store,
+#                       collections.abc.MutableMapping,
+#                       etc...
+
 class KVStoreV3(KVStore, StoreV3):
 
     def list(self):
         return list(self._mutable_mapping.keys())
+
+KVStoreV3.__doc__ = KVStore.__doc__
 
 
 class FSStoreV3(FSStore, StoreV3):
@@ -3441,3 +3462,57 @@ class FSStoreV3(FSStore, StoreV3):
     #         else:
     #             prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
     #     return keys, list(set(prefixes))
+
+
+class MemoryStoreV3(MemoryStore, StoreV3):
+
+    def __init__(self, root=None, cls=dict, dimension_separator=None):
+        if root is None:
+            self.root = cls()
+        else:
+            self.root = root
+        self.cls = cls
+        self.write_mutex = Lock()
+        self._dimension_separator = dimension_separator  # TODO: modify for v3?
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, MemoryStoreV3) and
+            self.root == other.root and
+            self.cls == other.cls
+        )
+
+    # modify listdir or set to NotImplementedError? (use list_dir instead?)
+    # def listdir(self, path: Path = None) -> List[str]:
+    #     path = normalize_storage_path(path)
+    #     if path:
+    #         try:
+    #             parent, key = self._get_parent(path)
+    #             value = parent[key]
+    #         except KeyError:
+    #             return []
+    #     else:
+    #         value = self.root
+    #     if isinstance(value, self.cls):
+    #         return sorted(value.keys())
+    #     else:
+    #         return []
+
+    def list(self):
+        return list(self.keys())
+
+MemoryStoreV3.__doc__ = MemoryStoreV3.__doc__
+
+
+class DirectoryStoreV3(DirectoryStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, DirectoryStoreV3) and
+            self.path == other.path
+        )
+
+DirectoryStoreV3.__doc__ = DirectoryStore.__doc__
