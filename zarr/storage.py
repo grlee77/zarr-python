@@ -1163,6 +1163,7 @@ class FSStore(MutableMapping):
                             for file_name in self.fs.find(entry_path):
                                 file_path = os.path.join(dir_path, file_name)
                                 rel_path = file_path.split(root_path)[1]
+                                rel_path = rel_path.lstrip(os.path.sep)
                                 new_children.append(rel_path.replace(os.path.sep, '.'))
                         else:
                             new_children.append(entry)
