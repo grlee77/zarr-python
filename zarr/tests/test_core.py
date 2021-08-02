@@ -569,7 +569,7 @@ class TestArray(unittest.TestCase):
         found.append(z.hexdigest())
         z.store.close()
 
-        self.expected() == found
+        assert self.expected() == found
 
     def test_resize_1d(self):
 
@@ -2686,8 +2686,17 @@ class TestArrayWithFSStoreNestedPartialRead(TestArray):
         assert (b[2:99_000] == 1).all()
 
 
+class TestArrayWithPathV3(TestArrayWithPath):
 
-class TestArrayWithPathV3(unittest.TestCase):
+    @staticmethod
+    def create_array(path='arr1', read_only=False, **kwargs):
+        store = KVStoreV3(dict())
+        kwargs.setdefault('compressor', Zlib(level=1))
+        cache_metadata = kwargs.pop('cache_metadata', True)
+        cache_attrs = kwargs.pop('cache_attrs', True)
+        init_array(store, path=path, **kwargs)
+        return Array(store, path=path, read_only=read_only,
+                     cache_metadata=cache_metadata, cache_attrs=cache_attrs)
 
     def test_array_init(self):
 
@@ -2733,62 +2742,6 @@ class TestArrayWithPathV3(unittest.TestCase):
         assert group_key not in store
         assert ('meta/root/' + path + '.array.json') in store
 
-    @staticmethod
-    def create_array(path='arr1', read_only=False, **kwargs):
-        store = KVStoreV3(dict())
-        kwargs.setdefault('compressor', Zlib(level=1))
-        cache_metadata = kwargs.pop('cache_metadata', True)
-        cache_attrs = kwargs.pop('cache_attrs', True)
-        init_array(store, path=path, **kwargs)
-        return Array(store, path=path, read_only=read_only,
-                     cache_metadata=cache_metadata, cache_attrs=cache_attrs)
-
-    # IDENTICAL TO V2 CASE
-    def test_store_has_text_keys(self):
-        # Initialize array
-        np.random.seed(42)
-        z = self.create_array(shape=(1050,), chunks=100, dtype='f8', compressor=[])
-        z[:] = np.random.random(z.shape)
-
-        expected_type = str
-
-        for k in z.chunk_store.keys():
-            if not isinstance(k, expected_type):  # pragma: no cover
-                pytest.fail("Non-text key: %s" % repr(k))
-
-        z.store.close()
-
-    # IDENTICAL TO V2 CASE
-    def test_store_has_binary_values(self):
-        # Initialize array
-        np.random.seed(42)
-        z = self.create_array(shape=(1050,), chunks=100, dtype='f8', compressor=[])
-        z[:] = np.random.random(z.shape)
-
-        for v in z.chunk_store.values():
-            try:
-                ensure_ndarray(v)
-            except TypeError:  # pragma: no cover
-                pytest.fail("Non-bytes-like value: %s" % repr(v))
-
-        z.store.close()
-
-    # IDENTICAL TO V2 CASE
-    def test_store_has_bytes_values(self):
-        # Test that many stores do hold bytes values.
-        # Though this is not a strict requirement.
-        # Should be disabled by any stores that fail this as needed.
-
-        # Initialize array
-        np.random.seed(42)
-        z = self.create_array(shape=(1050,), chunks=100, dtype='f8', compressor=[])
-        z[:] = np.random.random(z.shape)
-
-        # Check in-memory array only contains `bytes`
-        assert all([isinstance(v, bytes) for v in z.chunk_store.values()])
-
-        z.store.close()
-
     def test_nbytes_stored(self):
 
         # dict as store
@@ -2802,7 +2755,7 @@ class TestArrayWithPathV3(unittest.TestCase):
 
         # mess with store
         try:
-            z.store['data/root/' + z._key_prefix + 'foo'] = list(range(10))  # modified vs. v2
+            z.store['data/root/' + z._key_prefix + 'foo'] = list(range(10))
             assert -1 == z.nbytes_stored
         except TypeError:
             pass
@@ -2833,8 +2786,9 @@ class TestArrayWithPathV3(unittest.TestCase):
         assert a.shape == b.shape
         assert a.dtype == b.dtype
 
-        # check attributes  # modified vs. v2
-        with pytest.raises(ValueError):  # TODO: how to handle Attributes for v3. update array metadata?
+        # check attributes
+        # TODO: how to handle Attributes for v3. update array metadata?
+        with pytest.raises(ValueError):
             z.attrs['foo'] = 'bar'
             # assert 'bar' == z.attrs['foo']
             # assert 'bar' == z.attrs['foo']
@@ -2912,299 +2866,237 @@ class TestArrayWithPathV3(unittest.TestCase):
 
         z.store.close()
 
-    # IDENTICAL TO V2 CASE
-    def test_array_1d_fill_value(self):
-        for fill_value in -1, 0, 1, 10:
+    def test_attributes(self):
+        pytest.skip(".attrs not used in v3 spec")
+        # a = self.create_array(shape=10, chunks=10, dtype='i8')
+        # a.attrs['foo'] = 'bar'
+        # assert a.attrs.key in a.store
+        # attrs = json_loads(a.store[a.attrs.key])
+        # assert 'foo' in attrs and attrs['foo'] == 'bar'
 
-            a = np.arange(1050)
-            f = np.empty_like(a)
-            f.fill(fill_value)
-            z = self.create_array(shape=a.shape, chunks=100, dtype=a.dtype,
-                                  fill_value=fill_value)
-            z[190:310] = a[190:310]
+        # a.attrs['bar'] = 'foo'
+        # assert a.attrs.key in a.store
+        # attrs = json_loads(a.store[a.attrs.key])
+        # assert 'foo' in attrs and attrs['foo'] == 'bar'
+        # assert 'bar' in attrs and attrs['bar'] == 'foo'
+        # a.store.close()
 
-            assert_array_equal(f[:190], z[:190])
-            assert_array_equal(a[190:310], z[190:310])
-            assert_array_equal(f[310:], z[310:])
+    def test_dtypes(self):
 
+        # integers
+        for dtype in 'u1', 'u2', 'u4', 'u8', 'i1', 'i2', 'i4', 'i8':
+            z = self.create_array(shape=10, chunks=3, dtype=dtype)
+            assert z.dtype == np.dtype(dtype)
+            a = np.arange(z.shape[0], dtype=dtype)
+            z[:] = a
+            assert_array_equal(a, z[:])
             z.store.close()
 
-    # IDENTICAL TO V2 CASE
-    def test_array_1d_set_scalar(self):
-        # test setting the contents of an array with a scalar value
+        # floats
+        for dtype in 'f2', 'f4', 'f8':
+            z = self.create_array(shape=10, chunks=3, dtype=dtype)
+            assert z.dtype == np.dtype(dtype)
+            a = np.linspace(0, 1, z.shape[0], dtype=dtype)
+            z[:] = a
+            assert_array_almost_equal(a, z[:])
+            z.store.close()
 
-        # setup
-        a = np.zeros(100)
-        z = self.create_array(shape=a.shape, chunks=10, dtype=a.dtype)
-        z[:] = a
-        assert_array_equal(a, z[:])
+        # TODO: should v3 spec be extended to include these complex and
+        #       datetime dtypes?
 
-        for value in -1, 0, 1, 10:
-            a[15:35] = value
-            z[15:35] = value
-            assert_array_equal(a, z[:])
-            a[:] = value
-            z[:] = value
-            assert_array_equal(a, z[:])
+        # complex
+        for dtype in 'c8', 'c16':
+            with pytest.raises(AssertionError):
+                z = self.create_array(shape=10, chunks=3, dtype=dtype)
+            # assert z.dtype == np.dtype(dtype)
+            # a = np.linspace(0, 1, z.shape[0], dtype=dtype)
+            # a -= 1j * a
+            # z[:] = a
+            # assert_array_almost_equal(a, z[:])
+            # z.store.close()
 
+        # datetime, timedelta
+        for base_type in 'Mm':
+            for resolution in 'D', 'us', 'ns':
+                dtype = '{}8[{}]'.format(base_type, resolution)
+                with pytest.raises(AssertionError):
+                    z = self.create_array(shape=100, dtype=dtype, fill_value=0)
+                    # assert z.dtype == np.dtype(dtype)
+                    # a = np.random.randint(np.iinfo('i8').min, np.iinfo('i8').max,
+                    #                       size=z.shape[0],
+                    #                       dtype='i8').view(dtype)
+                    # z[:] = a
+                    # assert_array_equal(a, z[:])
+                z.store.close()
+
+        # check that datetime generic units are not allowed
+        with pytest.raises(ValueError):
+            self.create_array(shape=100, dtype='M8')
+        with pytest.raises(ValueError):
+            self.create_array(shape=100, dtype='m8')
+
+    def expected(self):
+        return [
+            "08d4f6afb2484151d9b0f353abbb7b179a296d3d",
+            "27fee6244e83c5af4432dea996e2a3a174845180",
+            "89073e0321dfdd75f27105bae3f39c1af1dafb70",
+            "85fae595aa93a1131d42a7a99977d825ccc0d4bf",
+           # "2a1046dd99b914459b3e86be9dde05027a07d209",  # attributes case
+        ]
+
+    def test_hexdigest(self):
+        found = []
+
+        # Check basic 1-D array
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        found.append(z.hexdigest())
         z.store.close()
 
-    # IDENTICAL TO V2 CASE
-    def test_array_1d_selections(self):
-        # light test here, full tests in test_indexing
-
-        # setup
-        a = np.arange(1050)
-        z = self.create_array(shape=a.shape, chunks=100, dtype=a.dtype)
-        z[:] = a
-
-        # get
-        assert_array_equal(a[50:150], z.get_orthogonal_selection(slice(50, 150)))
-        assert_array_equal(a[50:150], z.oindex[50: 150])
-        ix = [99, 100, 101]
-        bix = np.zeros_like(a, dtype=bool)
-        bix[ix] = True
-        assert_array_equal(a[ix], z.get_orthogonal_selection(ix))
-        assert_array_equal(a[ix], z.oindex[ix])
-        assert_array_equal(a[ix], z.get_coordinate_selection(ix))
-        assert_array_equal(a[ix], z.vindex[ix])
-        assert_array_equal(a[bix], z.get_mask_selection(bix))
-        assert_array_equal(a[bix], z.oindex[bix])
-        assert_array_equal(a[bix], z.vindex[bix])
-
-        # set
-        z.set_orthogonal_selection(slice(50, 150), 1)
-        assert_array_equal(1, z[50:150])
-        z.oindex[50:150] = 2
-        assert_array_equal(2, z[50:150])
-        z.set_orthogonal_selection(ix, 3)
-        assert_array_equal(3, z.get_coordinate_selection(ix))
-        z.oindex[ix] = 4
-        assert_array_equal(4, z.oindex[ix])
-        z.set_coordinate_selection(ix, 5)
-        assert_array_equal(5, z.get_coordinate_selection(ix))
-        z.vindex[ix] = 6
-        assert_array_equal(6, z.vindex[ix])
-        z.set_mask_selection(bix, 7)
-        assert_array_equal(7, z.get_mask_selection(bix))
-        z.vindex[bix] = 8
-        assert_array_equal(8, z.vindex[bix])
-        z.oindex[bix] = 9
-        assert_array_equal(9, z.oindex[bix])
-
+        # Check basic 1-D array with different type
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<f4')
+        found.append(z.hexdigest())
         z.store.close()
 
-    # IDENTICAL TO V2 CASE
-    # noinspection PyStatementEffect
-    def test_array_2d(self):
-        a = np.arange(10000).reshape((1000, 10))
-        z = self.create_array(shape=a.shape, chunks=(100, 2), dtype=a.dtype)
+        # Check basic 2-D array
+        z = self.create_array(shape=(20, 35,), chunks=10, dtype='<i4')
+        found.append(z.hexdigest())
+        z.store.close()
 
-        # check properties
-        assert len(a) == len(z)
-        assert a.ndim == z.ndim
-        assert a.shape == z.shape
-        assert a.dtype == z.dtype
-        assert (100, 2) == z.chunks
+        # Check basic 1-D array with some data
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        z[200:400] = np.arange(200, 400, dtype='i4')
+        found.append(z.hexdigest())
+        z.store.close()
+
+        # # Check basic 1-D array with attributes
+        # z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        # z.attrs['foo'] = 'bar'
+        # found.append(z.hexdigest())
+        # z.store.close()
+        print(f"found = {found}")
+        print(f"self.expected() = {self.expected()}")
+
+        assert self.expected() == found
+
+    def test_nchunks_initialized(self):
+        # copied from TestArray so the empty version from TestArrayWithPath is
+        # not used
+
+        z = self.create_array(shape=100, chunks=10)
         assert 0 == z.nchunks_initialized
-        assert (10, 5) == z.cdata_shape
-
-        # set data
-        z[:] = a
-
-        # check properties
-        assert a.nbytes == z.nbytes
-        assert 50 == z.nchunks_initialized
-
-        # check array-like
-        assert_array_equal(a, np.array(z))
-
-        # check slicing
-
-        # total slice
-        assert_array_equal(a, z[:])
-        assert_array_equal(a, z[...])
-        # noinspection PyTypeChecker
-        assert_array_equal(a, z[slice(None)])
-
-        # slice first dimension
-        assert_array_equal(a[:10], z[:10])
-        assert_array_equal(a[10:20], z[10:20])
-        assert_array_equal(a[-10:], z[-10:])
-        assert_array_equal(a[:10, :], z[:10, :])
-        assert_array_equal(a[10:20, :], z[10:20, :])
-        assert_array_equal(a[-10:, :], z[-10:, :])
-        assert_array_equal(a[:10, ...], z[:10, ...])
-        assert_array_equal(a[10:20, ...], z[10:20, ...])
-        assert_array_equal(a[-10:, ...], z[-10:, ...])
-        assert_array_equal(a[:10, :, ...], z[:10, :, ...])
-        assert_array_equal(a[10:20, :, ...], z[10:20, :, ...])
-        assert_array_equal(a[-10:, :, ...], z[-10:, :, ...])
-
-        # slice second dimension
-        assert_array_equal(a[:, :2], z[:, :2])
-        assert_array_equal(a[:, 2:4], z[:, 2:4])
-        assert_array_equal(a[:, -2:], z[:, -2:])
-        assert_array_equal(a[..., :2], z[..., :2])
-        assert_array_equal(a[..., 2:4], z[..., 2:4])
-        assert_array_equal(a[..., -2:], z[..., -2:])
-        assert_array_equal(a[:, ..., :2], z[:, ..., :2])
-        assert_array_equal(a[:, ..., 2:4], z[:, ..., 2:4])
-        assert_array_equal(a[:, ..., -2:], z[:, ..., -2:])
-
-        # slice both dimensions
-        assert_array_equal(a[:10, :2], z[:10, :2])
-        assert_array_equal(a[10:20, 2:4], z[10:20, 2:4])
-        assert_array_equal(a[-10:, -2:], z[-10:, -2:])
-
-        # slicing across chunk boundaries
-        assert_array_equal(a[:110], z[:110])
-        assert_array_equal(a[190:310], z[190:310])
-        assert_array_equal(a[-110:], z[-110:])
-        assert_array_equal(a[:110, :], z[:110, :])
-        assert_array_equal(a[190:310, :], z[190:310, :])
-        assert_array_equal(a[-110:, :], z[-110:, :])
-        assert_array_equal(a[:, :3], z[:, :3])
-        assert_array_equal(a[:, 3:7], z[:, 3:7])
-        assert_array_equal(a[:, -3:], z[:, -3:])
-        assert_array_equal(a[:110, :3], z[:110, :3])
-        assert_array_equal(a[190:310, 3:7], z[190:310, 3:7])
-        assert_array_equal(a[-110:, -3:], z[-110:, -3:])
-
-        # single row/col/item
-        assert_array_equal(a[0], z[0])
-        assert_array_equal(a[-1], z[-1])
-        assert_array_equal(a[:, 0], z[:, 0])
-        assert_array_equal(a[:, -1], z[:, -1])
-        assert a[0, 0] == z[0, 0]
-        assert a[-1, -1] == z[-1, -1]
-
-        # too many indices
-        with pytest.raises(IndexError):
-            z[:, :, :]
-        with pytest.raises(IndexError):
-            z[0, :, :]
-        with pytest.raises(IndexError):
-            z[:, 0, :]
-        with pytest.raises(IndexError):
-            z[:, :, 0]
-        with pytest.raises(IndexError):
-            z[0, 0, 0]
-        # only single ellipsis allowed
-        with pytest.raises(IndexError):
-            z[..., ...]
-
-        # check partial assignment
-        b = np.arange(10000, 20000).reshape((1000, 10))
-        z[190:310, 3:7] = b[190:310, 3:7]
-        assert_array_equal(a[:190], z[:190])
-        assert_array_equal(a[:, :3], z[:, :3])
-        assert_array_equal(b[190:310, 3:7], z[190:310, 3:7])
-        assert_array_equal(a[310:], z[310:])
-        assert_array_equal(a[:, 7:], z[:, 7:])
+        # manually put something into the store to confuse matters
+        z.store['foo'] = b'bar'
+        assert 0 == z.nchunks_initialized
+        z[:] = 42
+        assert 10 == z.nchunks_initialized
 
         z.store.close()
 
-    # IDENTICAL TO V2 CASE
-    def test_array_2d_edge_case(self):
-        # this fails with filters - chunks extend beyond edge of array, messes with delta
-        # filter if no fill value?
-        shape = 1000, 10
-        chunks = 300, 30
-        dtype = 'i8'
-        z = self.create_array(shape=shape, dtype=dtype, chunks=chunks)
-        z[:] = 0
-        expect = np.zeros(shape, dtype=dtype)
-        actual = z[:]
-        assert_array_equal(expect, actual)
+    def test_object_arrays(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-        z.store.close()
+    def test_object_arrays_vlen_text(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-    # IDENTICAL TO V2 CASE
-    def test_array_2d_partial(self):
-        z = self.create_array(shape=(1000, 10), chunks=(100, 2), dtype='i4',
-                              fill_value=0)
+    def test_object_arrays_vlen_bytes(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-        # check partial assignment, single row
-        c = np.arange(z.shape[1])
-        z[0, :] = c
-        with pytest.raises(ValueError):
-            # N.B., NumPy allows this, but we'll be strict for now
-            z[2:3] = c
-        with pytest.raises(ValueError):
-            # N.B., NumPy allows this, but we'll be strict for now
-            z[-1:] = c
-        z[2:3] = c[None, :]
-        z[-1:] = c[None, :]
-        assert_array_equal(c, z[0, :])
-        assert_array_equal(c, z[2, :])
-        assert_array_equal(c, z[-1, :])
+    def test_object_arrays_vlen_array(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-        # check partial assignment, single column
-        d = np.arange(z.shape[0])
-        z[:, 0] = d
-        with pytest.raises(ValueError):
-            z[:, 2:3] = d
-        with pytest.raises(ValueError):
-            z[:, -1:] = d
-        z[:, 2:3] = d[:, None]
-        z[:, -1:] = d[:, None]
-        assert_array_equal(d, z[:, 0])
-        assert_array_equal(d, z[:, 2])
-        assert_array_equal(d, z[:, -1])
+    def test_object_arrays_danger(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-        # check single item assignment
-        z[0, 0] = -1
-        z[2, 2] = -1
-        z[-1, -1] = -1
-        assert -1 == z[0, 0]
-        assert -1 == z[2, 2]
-        assert -1 == z[-1, -1]
+    def test_object_codec_warnings(self):
+        pytest.skip("v3 implementation doesn't support object arrays")
 
-        z.store.close()
+    def test_structured_array(self):
+        pytest.skip("v3 implementation doesn't support structured arrays")
 
-    # IDENTICAL TO V2 CASE
-    def test_array_order(self):
+    def test_structured_array_nested(self):
+        pytest.skip("v3 implementation doesn't support structured arrays")
 
-        # 1D
-        a = np.arange(1050)
-        for order in 'C', 'F':
-            z = self.create_array(shape=a.shape, chunks=100, dtype=a.dtype,
-                                  order=order)
-            assert order == z.order
-            if order == 'F':
-                assert z[:].flags.f_contiguous
-            else:
-                assert z[:].flags.c_contiguous
-            z[:] = a
-            assert_array_equal(a, z[:])
+    def test_structured_array_subshapes(self):
+        pytest.skip("v3 implementation doesn't support structured arrays")
 
-            z.store.close()
 
-        # 2D
-        a = np.arange(10000).reshape((100, 100))
-        for order in 'C', 'F':
-            z = self.create_array(shape=a.shape, chunks=(10, 10),
-                                  dtype=a.dtype, order=order)
-            assert order == z.order
-            if order == 'F':
-                assert z[:].flags.f_contiguous
-            else:
-                assert z[:].flags.c_contiguous
-            z[:] = a
-            actual = z[:]
-            assert_array_equal(a, actual)
+class TestArrayWithChunkStoreV3(TestArrayWithPathV3):
 
-            z.store.close()
+    @staticmethod
+    def create_array(path='arr1', read_only=False, **kwargs):
+        store = KVStoreV3(dict())
+        # separate chunk store
+        chunk_store = KVStoreV3(dict())
+        cache_metadata = kwargs.pop('cache_metadata', True)
+        cache_attrs = kwargs.pop('cache_attrs', True)
+        init_array(store, path=path, chunk_store=chunk_store, **kwargs)
+        return Array(store, path=path, read_only=read_only,
+                     chunk_store=chunk_store, cache_metadata=cache_metadata,
+                     cache_attrs=cache_attrs)
 
-    # IDENTICAL TO V2 CASE
-    def test_setitem_data_not_shared(self):
-        # check that data don't end up being shared with another array
-        # https://github.com/alimanfoo/zarr/issues/79
-        z = self.create_array(shape=20, chunks=10, dtype='i4')
-        a = np.arange(20, dtype='i4')
-        z[:] = a
-        assert_array_equal(z[:], np.arange(20, dtype='i4'))
-        a[:] = 0
-        assert_array_equal(z[:], np.arange(20, dtype='i4'))
-        z.store.close()
+    def test_hexdigest(self):
+        # Check basic 1-D array
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        assert '63fa13c4ba42ff9175176eadcfc335c18088f075' == z.hexdigest()
+
+        # Check basic 1-D array with different type
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<f4')
+        assert 'ebc3c6f48fb4721c5c87b95561aeac007d672a3d' == z.hexdigest()
+
+        # Check basic 2-D array
+        z = self.create_array(shape=(20, 35,), chunks=10, dtype='<i4')
+        assert '4c63b724a421a774e9fffb68dd137bf12705ff41' == z.hexdigest()
+
+        # Check basic 1-D array with some data
+        z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        z[200:400] = np.arange(200, 400, dtype='i4')
+        assert '13cee24a7ccce7862fdde4ea4f1bb463a198b6db' == z.hexdigest()
+
+        # TODO: v3 attributes
+        # # Check basic 1-D array with attributes
+        # z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
+        # z.attrs['foo'] = 'bar'
+        # assert '05b0663ffe1785f38d3a459dec17e57a18f254af' == z.hexdigest()
+
+    def test_nbytes_stored(self):
+
+        z = self.create_array(shape=1000, chunks=100)
+        expect_nbytes_stored = sum(buffer_size(v) for v in z.store.values())
+        expect_nbytes_stored += sum(buffer_size(v)
+                                    for v in z.chunk_store.values())
+        assert expect_nbytes_stored == z.nbytes_stored
+        z[:] = 42
+        expect_nbytes_stored = sum(buffer_size(v) for v in z.store.values())
+        expect_nbytes_stored += sum(buffer_size(v)
+                                    for v in z.chunk_store.values())
+        assert expect_nbytes_stored == z.nbytes_stored
+
+        # mess with store
+        z.chunk_store['data/root/' + z._key_prefix + 'foo'] = list(range(10))
+        assert -1 == z.nbytes_stored
+
+"""
+class TestArrayWithDirectoryStoreV3(TestArrayWithPathV3):
+
+    @staticmethod
+    def create_array(path='arr1', read_only=False, **kwargs):
+        path = mkdtemp()
+        atexit.register(shutil.rmtree, path)
+        store = DirectoryStoreV3(path)
+        cache_metadata = kwargs.pop('cache_metadata', True)
+        cache_attrs = kwargs.pop('cache_attrs', True)
+        kwargs.setdefault('compressor', Zlib(1))
+        init_array(store, path=path, **kwargs)
+        return Array(store, path=path, read_only=read_only,
+                     cache_metadata=cache_metadata, cache_attrs=cache_attrs)
+
+    def test_nbytes_stored(self):
+
+        # dict as store
+        z = self.create_array(shape=1000, chunks=100)
+        expect_nbytes_stored = sum(buffer_size(v) for v in z.store.values())
+        assert expect_nbytes_stored == z.nbytes_stored
+        z[:] = 42
+        expect_nbytes_stored = sum(buffer_size(v) for v in z.store.values())
+        assert expect_nbytes_stored == z.nbytes_stored
+"""

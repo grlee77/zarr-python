@@ -239,11 +239,30 @@ class Group(MutableMapping):
         quux
 
         """
-        for key in sorted(listdir(self._store, self._path)):
-            path = self._key_prefix + key
-            if (contains_array(self._store, path) or
-                    contains_group(self._store, path)):
-                yield key
+        if getattr(self._store, '_store_version', 2) == 2:
+            for key in sorted(listdir(self._store, self._path)):
+                path = self._key_prefix + key
+                if (contains_array(self._store, path) or
+                        contains_group(self._store, path)):
+                    yield key
+        else:
+            # TODO: fix behavior for v3
+            dir_path =  'meta/root/' + self._key_prefix
+            path_start = 10  # len("meta/root/")
+            name_start = len(dir_path)
+            keys, prefixes = self._store.list_dir(dir_path)
+            for key in keys:
+                # path = key[path_start:]
+                # path = path.rstrip('.array.json')
+                # path = path.rstrip('.group.json')
+                # if (contains_array(self._store, path) or
+                #         contains_group(self._store, path)):
+                #     print(path)
+                #     yield path[len(self._key_prefix):]
+                if key.endswith(('.group.json', '.array.json')):
+                    yield key[name_start:]
+            for prefix in prefixes:
+                yield prefix[name_start:]
 
     def __len__(self):
         """Number of members."""
