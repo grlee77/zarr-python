@@ -2380,6 +2380,7 @@ class LMDBStore(Store):
         return self.db.stat()['entries']
 
 
+
 class LRUStoreCache(Store):
     """Storage class that implements a least-recently-used (LRU) cache layer over
     some other store. Intended primarily for use with stores that can be slow to
@@ -3375,6 +3376,9 @@ class StoreV3(Store):
         """Remove all items from store."""
         self.erase_prefix("/")
 
+    def __eq__(self, other):
+        return type(other) == type(self) and self.path == other.path
+
 
 # Note: The KVStoreV3 method resolution order (MRO) will be as follows:
 # KVStoreV3.__mro__ == [zarr.storage.KVStoreV3,
@@ -3403,47 +3407,48 @@ class FSStoreV3(FSStore, StoreV3):
         key = normalize_storage_path(key).lstrip('/')
         return key.lower() if self.normalize_keys else key
 
-    def listdir(self, path=None):
-        raise NotImplementedError("TODO: update this function for V3")
-        # TODO: require leading '/'?
-        path = normalize_storage_path(path)
-        dir_path = self.dir_path(path)
-        is_data_path = path.startswith('data')
-        try:
-            children = sorted(p.rstrip('/').rsplit('/', 1)[-1]
-                              for p in self.fs.ls(dir_path, detail=False))
-            if is_data_path:
-                meta_path = path.replace('data', 'meta', 1)
-                meta_dir_path = self.dir_path(meta_path)
-                path_is_group = self.fs.isdir(meta_dir_path)
-                if not path_is_group:
-                    array_meta_path = meta_dir_path + '.array.json'
-                    path_is_array = self.fs.exists(array_meta_path)
+    # def listdir(self, path=None):
+    #     raise NotImplementedError("TODO: update this function for V3")
+    #     # TODO: require leading '/'?
+    #     path = normalize_storage_path(path)
+    #     dir_path = self.dir_path(path)
+    #     is_data_path = path.startswith('data')
+    #     try:
+    #         children = sorted(p.rstrip('/').rsplit('/', 1)[-1]
+    #                           for p in self.fs.ls(dir_path, detail=False))
+    #         if is_data_path:
+    #             meta_path = path.replace('data', 'meta', 1)
+    #             meta_dir_path = self.dir_path(meta_path)
+    #             path_is_group = self.fs.isdir(meta_dir_path)
+    #             if not path_is_group:
+    #                 array_meta_path = meta_dir_path + '.array.json'
+    #                 path_is_array = self.fs.exists(array_meta_path)
 
-            if path_is_array:
-                key_separator = json_loads(array_meta_path)
-            if self.key_separator != "/":
-                return children
-            else:
-                if array_meta_key in children:
-                    # special handling of directories containing an array to map nested chunk
-                    # keys back to standard chunk keys
-                    new_children = []
-                    root_path = self.dir_path(path)
-                    for entry in children:
-                        entry_path = os.path.join(root_path, entry)
-                        if _prog_number.match(entry) and self.fs.isdir(entry_path):
-                            for file_name in self.fs.find(entry_path):
-                                file_path = os.path.join(dir_path, file_name)
-                                rel_path = file_path.split(root_path)[1]
-                                new_children.append(rel_path.replace(os.path.sep, '.'))
-                        else:
-                            new_children.append(entry)
-                    return sorted(new_children)
-                else:
-                    return children
-        except IOError:
-            return []
+    #         if path_is_array:
+    #             key_separator = json_loads(array_meta_path)
+    #         if self.key_separator != "/":
+    #             return children
+    #         else:
+    #             if array_meta_key in children:
+    #                 # special handling of directories containing an array to map nested chunk
+    #                 # keys back to standard chunk keys
+    #                 new_children = []
+    #                 root_path = self.dir_path(path)
+    #                 for entry in children:
+    #                     entry_path = os.path.join(root_path, entry)
+    #                     if _prog_number.match(entry) and self.fs.isdir(entry_path):
+    #                         for file_name in self.fs.find(entry_path):
+    #                             file_path = os.path.join(dir_path, file_name)
+    #                             rel_path = file_path.split(root_path)[1]
+    #                             new_children.append(rel_path.replace(os.path.sep, '.'))
+    #                     else:
+    #                         new_children.append(entry)
+    #                 return sorted(new_children)
+    #             else:
+    #                 return children
+    #     except IOError:
+    #         return []
+
 
     # def list_dir(self, prefix):
     #     """
@@ -3516,3 +3521,93 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
         )
 
 DirectoryStoreV3.__doc__ = DirectoryStore.__doc__
+
+
+class ZipStoreV3(ZipStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ZipStore) and
+            self.path == other.path and
+            self.compression == other.compression and
+            self.allowZip64 == other.allowZip64
+        )
+ZipStoreV3.__doc__ = ZipStore.__doc__
+
+
+class NestedDirectoryStoreV3(NestedDirectoryStore, DirectoryStoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, NestedDirectoryStoreV3) and
+            self.path == other.path
+        )
+
+NestedDirectoryStoreV3.__doc__ = NestedDirectoryStore.__doc__
+
+
+class RedisStoreV3(RedisStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+RedisStoreV3.__doc__ = RedisStore.__doc__
+
+
+class MongoDBStoreV3(MongoDBStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+MongoDBStoreV3.__doc__ = MongoDBStore.__doc__
+
+
+class DBMStoreV3(DBMStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+DBMStoreV3.__doc__ = DBMStore.__doc__
+
+
+class LMDBStoreV3(LMDBStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+LMDBStoreV3.__doc__ = LMDBStore.__doc__
+
+
+class SQLiteStoreV3(SQLiteStore, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+SQLiteStoreV3.__doc__ = SQLiteStore.__doc__
+
+
+class LRUStoreCacheV3(LRUStoreCache, StoreV3):
+
+    def list(self):
+        return list(self.keys())
+
+LRUStoreCacheV3.__doc__ = LRUStoreCache.__doc__
+
+
+# TODO: add tests for ABSStoreV3
+class ABSStoreV3(ABSStore, StoreV3):
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, ABSStoreV3) and
+            self.client == other.client and
+            self.prefix == other.prefix
+        )
+
+ABSStoreV3.__doc__ = ABSStore.__doc__

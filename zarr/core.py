@@ -1851,10 +1851,7 @@ class Array:
 
         try:
             # obtain compressed data for chunk
-            if self._version == 2:
-                cdata = self.chunk_store[ckey]
-            elif self._version ==3:
-                cdata = self.chunk_store[ckey]
+            cdata = self.chunk_store[ckey]
 
         except KeyError:
             # chunk not initialized

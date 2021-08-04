@@ -33,12 +33,16 @@ class Metadata2:
         # or a string of JSON that we will parse here. We allow for an already-parsed
         # object to accommodate a consolidated metadata store, where all the metadata for
         # all groups and arrays will already have been parsed from JSON.
+
         if isinstance(s, Mapping):
             # assume metadata has already been parsed into a mapping object
             meta = s
         else:
             # assume metadata needs to be parsed as JSON
-            meta = json_loads(s)
+            try:
+                meta = json_loads(s)
+            except:
+                1 / 0
         return meta
 
     @classmethod
@@ -231,7 +235,18 @@ class Metadata3(Metadata2):
 
     @classmethod
     def decode_group_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
-        return json.loads(s)
+        meta = cls.parse_metadata(s)
+        # 1 / 0
+        # # check metadata format version
+        # zarr_format = meta.get("zarr_format", None)
+        # if zarr_format != cls.ZARR_FORMAT:
+        #     raise MetadataError("unsupported zarr format: %s" % zarr_format)
+
+        assert 'attributes' in meta
+        # meta = dict(attributes=meta['attributes'])
+        return meta
+
+        #return json.loads(s)
 
     @classmethod
     def encode_group_metadata(cls, meta=None):

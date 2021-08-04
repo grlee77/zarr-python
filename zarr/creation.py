@@ -13,7 +13,8 @@ from zarr.errors import (
 from zarr.n5 import N5Store
 from zarr.storage import (DirectoryStore, ZipStore, KVStore, contains_array,
                           contains_group, default_compressor, init_array,
-                          normalize_storage_path, FSStore, Store)
+                          normalize_storage_path, FSStore, Store,
+                          StoreV3, KVStoreV3, DirectoryStoreV3)
 from zarr.util import normalize_dimension_separator
 
 
@@ -146,21 +147,42 @@ def create(shape, chunks=True, dtype=None, compressor='default',
     return z
 
 
-def normalize_store_arg(store, clobber=False, storage_options=None, mode="w") -> Store:
+def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
+                        *, zarr_version=2) -> Store:
+    if zarr_version not in [2, 3]:
+        raise ValueError("zarr_version must be 2 or 3")
     if store is None:
-        return Store._ensure_store(dict())
+        if zarr_version == 2:
+            return Store._ensure_store(dict())
+        else:
+            return StoreV3._ensure_store(dict())
     elif isinstance(store, str):
         mode = mode if clobber else "r"
-        if "://" in store or "::" in store:
-            return FSStore(store, mode=mode, **(storage_options or {}))
-        elif storage_options:
-            raise ValueError("storage_options passed with non-fsspec path")
-        if store.endswith('.zip'):
-            return ZipStore(store, mode=mode)
-        elif store.endswith('.n5'):
-            return N5Store(store)
-        else:
-            return DirectoryStore(store)
+        if zarr_version == 2:
+            if "://" in store or "::" in store:
+                return FSStore(store, mode=mode, **(storage_options or {}))
+            elif storage_options:
+                raise ValueError("storage_options passed with non-fsspec path")
+            if store.endswith('.zip'):
+                return ZipStore(store, mode=mode)
+            elif store.endswith('.n5'):
+                return N5Store(store)
+            else:
+                return DirectoryStore(store)
+        elif zarr_version == 3:
+            if "://" in store or "::" in store:
+                raise NotImplementedError("TODO")
+                # return FSStoreV3(store, mode=mode, **(storage_options or {}))
+            elif storage_options:
+                raise ValueError("storage_options passed with non-fsspec path")
+            if store.endswith('.zip'):
+                raise NotImplementedError("TODO")
+                #return ZipStoreV3(store, mode=mode)
+            elif store.endswith('.n5'):
+                raise NotImplementedError("TODO")
+                #return N5StoreV3(store)
+            else:
+                return DirectoryStoreV3(store)
     else:
         if not isinstance(store, Store) and isinstance(store, MutableMapping):
             store = KVStore(store)

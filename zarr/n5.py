@@ -12,6 +12,7 @@ from numcodecs.registry import get_codec, register_codec
 
 from .meta import ZARR_FORMAT, json_dumps, json_loads
 from .storage import NestedDirectoryStore, _prog_ckey, _prog_number
+from .storage import NestedDirectoryStoreV3
 from .storage import array_meta_key as zarr_array_meta_key
 from .storage import attrs_key as zarr_attrs_key
 from .storage import group_meta_key as zarr_group_meta_key
@@ -652,3 +653,15 @@ class N5ChunkWrapper(Codec):
 
 
 register_codec(N5ChunkWrapper, N5ChunkWrapper.codec_id)
+
+
+# TODO: V3 version of N5Store
+class N5StoreV3(N5Store, NestedDirectoryStoreV3):
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, N5StoreV3) and
+            self.path == other.path
+        )
+
+N5StoreV3.__doc__ = N5Store.__doc__
