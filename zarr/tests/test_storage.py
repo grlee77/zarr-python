@@ -23,6 +23,7 @@ from zarr.meta import (ZARR_FORMAT, ZARR_FORMAT_v3, decode_array_metadata,
                        decode_group_metadata, encode_array_metadata,
                        encode_group_metadata)
 from zarr.n5 import N5Store
+from zarr.n5 import N5StoreV3
 from zarr.storage import (ABSStore, ConsolidatedMetadataStore, DBMStore,
                           DictStore, DirectoryStore, KVStore,
                           LMDBStore, LRUStoreCache, MemoryStore,
@@ -1756,6 +1757,83 @@ class TestN5Store(TestNestedDirectoryStore):
             store = self.create_store()
             with error:
                 init_array(store, shape=1000, chunks=100, filters=filters)
+
+
+# TODO: enable once N5StoreV3 has been implemented
+@pytest.mark.skipif(True, reason="N5StoreV3 not yet fully implemented")
+class TestN5StoreV3(TestN5Store, TestNestedDirectoryStoreV3, StoreV3Tests):
+
+    def create_store(self, normalize_keys=False):
+        path = tempfile.mkdtemp(suffix='.n5')
+        atexit.register(atexit_rmtree, path)
+        store = N5StoreV3(path, normalize_keys=normalize_keys)
+        return store
+
+    def test_equal(self):
+        store_a = self.create_store()
+        store_b = N5StoreV3(store_a.path)
+        assert store_a == store_b
+
+    def test_init_array(self):
+        pytest.mark.skip("Zarr V3 stores can't create an array without a path")
+
+    def test_init_array_path(self):
+        path = 'foo/bar'
+        store = self.create_store()
+        init_array(store, shape=1000, chunks=100, path=path)
+
+        # check metadata
+        key = 'meta/root/' + path + '.array.json'
+        assert key in store
+        meta = store._metadata_class.decode_array_metadata(store[key])
+        assert ZARR_FORMAT_v3 == meta['zarr_format']
+        assert (1000,) == meta['shape']
+        assert (100,) == meta['chunk_grid']['chunk_shape']
+        assert np.dtype(None) == meta['data_type']
+        # N5Store wraps the actual compressor
+        compressor_config = meta['compressor']['compressor_config']
+        assert default_compressor.get_config() == compressor_config
+        # N5Store always has a fill value of 0
+        assert meta['fill_value'] == 0
+
+    def test_init_array_compat(self):
+        store = self.create_store()
+        path = 'arr1'
+        init_array(store, path=path, shape=1000, chunks=100, compressor='none')
+        array_meta_key = 'meta/root/' + path + '.array.json'
+        meta = store._metadata_class.decode_array_metadata(
+            store[array_meta_key]
+        )
+        # N5Store wraps the actual compressor
+        compressor_config = meta['compressor']['compressor_config']
+        assert compressor_config is None
+
+    def test_init_group(self):
+        store = self.create_store()
+        path = 'group1'
+        init_group(store, path=path)
+
+        # check metadata
+        group_meta_key = 'meta/root/' + path + '.group.json'
+        assert group_meta_key in store
+        assert group_meta_key in store.listdir()
+        assert group_meta_key in store.listdir('')
+        meta = store._metadata_class.decode_group_metadata(
+            store[group_meta_key]
+        )
+        # assert ZARR_FORMAT_v3 == meta['zarr_format']
+
+    def test_filters(self):
+        all_filters, all_errors = zip(*[
+            (None, does_not_raise()),
+            ([], does_not_raise()),
+            ([AsType('f4', 'f8')], pytest.raises(ValueError)),
+        ])
+        for filters, error in zip(all_filters, all_errors):
+            store = self.create_store()
+            with error:
+                init_array(store, path='arr1', shape=1000, chunks=100,
+                           filters=filters)
 
 
 @pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")

@@ -22,7 +22,8 @@ def create(shape, chunks=True, dtype=None, compressor='default',
            fill_value=0, order='C', store=None, synchronizer=None,
            overwrite=False, path=None, chunk_store=None, filters=None,
            cache_metadata=True, cache_attrs=True, read_only=False,
-           object_codec=None, dimension_separator=None, **kwargs):
+           object_codec=None, dimension_separator=None, *, zarr_version=None,
+           **kwargs):
     """Create an array.
 
     Parameters
@@ -50,7 +51,8 @@ def create(shape, chunks=True, dtype=None, compressor='default',
         If True, delete all pre-existing data in `store` at `path` before
         creating the array.
     path : string, optional
-        Path under which array is stored.
+        Path under which array is stored. For zarr spec v3 arrays, this will
+        default to 'array'.
     chunk_store : MutableMapping, optional
         Separate storage for chunks. If not provided, `store` will be used
         for storage of both chunks and metadata.
@@ -72,6 +74,10 @@ def create(shape, chunks=True, dtype=None, compressor='default',
     dimension_separator : {'.', '/'}, optional
         Separator placed between the dimensions of a chunk.
         .. versionadded:: 2.8
+    zarr_version : {None, 2, 3}, optional
+        The zarr protocol version of the created array. If None, it will be
+        inferred from ``store`` or ``chunk_store`` if they are provided,
+        otherwise defaulting to 2.
 
     Returns
     -------
@@ -116,9 +122,12 @@ def create(shape, chunks=True, dtype=None, compressor='default',
         <zarr.core.Array (10000, 10000) float64>
 
     """
+    if zarr_version is None and store is None:
+        zarr_version = getattr(chunk_store, '_store_version', 2)
 
     # handle polymorphic store arg
-    store = normalize_store_arg(store)
+    store = normalize_store_arg(store, zarr_version=zarr_version)
+    zarr_version = getattr(store, '_store_version', 2)
 
     # API compatibility with h5py
     compressor, fill_value = _kwargs_compat(compressor, fill_value, kwargs)
@@ -134,6 +143,9 @@ def create(shape, chunks=True, dtype=None, compressor='default',
                 f"{store._dimension_separator}")
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
+    if store._store_version == 3 and path is None:
+        path = 'array'
+
     # initialize array metadata
     init_array(store, shape=shape, chunks=chunks, dtype=dtype, compressor=compressor,
                fill_value=fill_value, order=order, overwrite=overwrite, path=path,
@@ -148,7 +160,10 @@ def create(shape, chunks=True, dtype=None, compressor='default',
 
 
 def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
-                        *, zarr_version=2) -> Store:
+                        *, zarr_version=None) -> Store:
+    if zarr_version is None:
+        # default to v2 store for backward compatibility
+        zarr_version = getattr(store, '_store_version', 2)
     if zarr_version not in [2, 3]:
         raise ValueError("zarr_version must be 2 or 3")
     if store is None:
@@ -171,22 +186,23 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
                 return DirectoryStore(store)
         elif zarr_version == 3:
             if "://" in store or "::" in store:
-                raise NotImplementedError("TODO")
-                # return FSStoreV3(store, mode=mode, **(storage_options or {}))
+                return FSStoreV3(store, mode=mode, **(storage_options or {}))
             elif storage_options:
                 raise ValueError("storage_options passed with non-fsspec path")
             if store.endswith('.zip'):
-                raise NotImplementedError("TODO")
-                #return ZipStoreV3(store, mode=mode)
+                return ZipStoreV3(store, mode=mode)
             elif store.endswith('.n5'):
-                raise NotImplementedError("TODO")
-                #return N5StoreV3(store)
+                raise NotImplementedError("N5Store not yet implemented for V3")
+                # return N5StoreV3(store)
             else:
                 return DirectoryStoreV3(store)
-    else:
+    elif zarr_version == 2:
         if not isinstance(store, Store) and isinstance(store, MutableMapping):
             store = KVStore(store)
-        return store
+    elif zarr_version == 3:
+        if not isinstance(store, StoreV3) and isinstance(store, MutableMapping):
+            store = KVStoreV3(store)
+    return store
 
 
 def _kwargs_compat(compressor, fill_value, kwargs):
@@ -421,6 +437,8 @@ def open_array(
     chunk_store=None,
     storage_options=None,
     partial_decompress=False,
+    *,
+    zarr_version=None,
     **kwargs
 ):
     """Open an array using file-mode-like semantics.
@@ -511,12 +529,21 @@ def open_array(
     # w- or x : create, fail if exists
     # a : read/write if exists, create otherwise (default)
 
+    if zarr_version is None and store is None:
+        zarr_version = getattr(chunk_store, '_store_version', 2)
+
     # handle polymorphic store arg
     clobber = (mode == 'w')
-    store = normalize_store_arg(store, clobber=clobber, storage_options=storage_options, mode=mode)
+    store = normalize_store_arg(store, clobber=clobber,
+                                storage_options=storage_options, mode=mode,
+                                zarr_version=zarr_version)
     if chunk_store is not None:
         chunk_store = normalize_store_arg(chunk_store, clobber=clobber,
-                                          storage_options=storage_options)
+                                          storage_options=storage_options,
+                                          zarr_version=zarr_version)
+
+    if store._store_version == 3 and path is None:
+        path = 'array'
     path = normalize_storage_path(path)
 
     # API compatibility with h5py
@@ -586,6 +613,7 @@ def _like_args(a, kwargs):
         kwargs.setdefault('compressor', a.compressor)
         kwargs.setdefault('order', a.order)
         kwargs.setdefault('filters', a.filters)
+        kwargs.setdefault('zarr_version', a._version)
     else:
         kwargs.setdefault('compressor', 'default')
         kwargs.setdefault('order', 'C')

@@ -3379,6 +3379,41 @@ class StoreV3(Store):
     def __eq__(self, other):
         return type(other) == type(self) and self.path == other.path
 
+    @staticmethod
+    def _ensure_store(store):
+        """
+        We want to make sure internally that zarr stores are always a class
+        with a specific interface derived from ``Store``, which is slightly
+        different than ``MutableMapping``.
+
+        We'll do this conversion in a few places automatically
+        """
+        if store is None:
+            return None
+        elif isinstance(store, Store):
+            return store
+        elif isinstance(store, MutableMapping):
+            return KVStoreV3(store)
+        else:
+            for attr in [
+                "keys",
+                "values",
+                "get",
+                "__setitem__",
+                "__getitem__",
+                "__delitem__",
+                "__contains__",
+            ]:
+                if not hasattr(store, attr):
+                    break
+            else:
+                return KVStoreV3(store)
+
+        raise ValueError(
+            "Starting with Zarr 2.9.0, stores must be subclasses of Store, if "
+            "your store exposes the MutableMapping interface wrap it in "
+            f"Zarr.storage.KVStoreV3. Got {store}"
+        )
 
 # Note: The KVStoreV3 method resolution order (MRO) will be as follows:
 # KVStoreV3.__mro__ == [zarr.storage.KVStoreV3,

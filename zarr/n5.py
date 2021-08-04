@@ -302,7 +302,8 @@ def invert_chunk_coords(key):
     return key
 
 
-def group_metadata_to_n5(group_metadata):
+# TODO: update these functions to use zarr_version
+def group_metadata_to_n5(group_metadata, *, zarr_version=2):
     '''Convert group metadata from zarr to N5 format.'''
     del group_metadata['zarr_format']
     # TODO: This should only exist at the top-level
@@ -310,7 +311,7 @@ def group_metadata_to_n5(group_metadata):
     return group_metadata
 
 
-def group_metadata_to_zarr(group_metadata):
+def group_metadata_to_zarr(group_metadata, *, zarr_version=2):
     '''Convert group metadata from N5 to zarr format.'''
     # This only exists at the top level
     group_metadata.pop('n5', None)
@@ -318,7 +319,7 @@ def group_metadata_to_zarr(group_metadata):
     return group_metadata
 
 
-def array_metadata_to_n5(array_metadata):
+def array_metadata_to_n5(array_metadata, *, zarr_version=2):
     '''Convert array metadata from zarr to N5 format.'''
 
     for f, t in zarr_to_n5_keys:
@@ -362,7 +363,7 @@ def array_metadata_to_n5(array_metadata):
     return array_metadata
 
 
-def array_metadata_to_zarr(array_metadata):
+def array_metadata_to_zarr(array_metadata, *, zarr_version=2):
     '''Convert array metadata from N5 to zarr format.'''
     for t, f in zarr_to_n5_keys:
         array_metadata[t] = array_metadata[f]
@@ -387,7 +388,7 @@ def array_metadata_to_zarr(array_metadata):
     return array_metadata
 
 
-def attrs_to_zarr(attrs):
+def attrs_to_zarr(attrs, *, zarr_version=2):
     '''Get all zarr attributes from an N5 attributes dictionary (i.e.,
     all non-keyword attributes).'''
 
@@ -399,7 +400,7 @@ def attrs_to_zarr(attrs):
     return attrs
 
 
-def compressor_config_to_n5(compressor_config):
+def compressor_config_to_n5(compressor_config, *, zarr_version=2):
 
     if compressor_config is None:
         return {'type': 'raw'}
@@ -470,7 +471,7 @@ def compressor_config_to_n5(compressor_config):
     return n5_config
 
 
-def compressor_config_to_zarr(compressor_config):
+def compressor_config_to_zarr(compressor_config, *, zarr_version=2):
 
     codec_id = compressor_config['type']
     zarr_config = {'id': codec_id}
