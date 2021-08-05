@@ -14,8 +14,9 @@ from zarr.errors import (
     GroupNotFoundError,
     ReadOnlyError,
 )
-from zarr.meta import decode_group_metadata
+from zarr.meta import decode_group_metadata, _default_entry_point_metadata_v3
 from zarr.storage import (
+    _get_hierarchy_metadata,
     _prefix_to_group_key,
     MemoryStore,
     MemoryStoreV3,
@@ -135,6 +136,8 @@ class Group(MutableMapping):
         if self._version == 3:
             self._data_key_prefix = 'data/root/' + self._key_prefix
             self._data_path = 'data/root/' + self._path
+            self._hierarchy_metadata = _get_hierarchy_metadata(store=None)
+            self._metadata_key_suffix = self._hierarchy_metadata['metadata_key_suffix']
 
         # guard conditions
         if contains_array(store, path=self._path):
@@ -259,15 +262,16 @@ class Group(MutableMapping):
             name_start = len(dir_path)
             keys, prefixes = self._store.list_dir(dir_path)
 
+            sfx = self._metadata_key_suffix
             for key in keys:
                 # path = key[path_start:]
-                # path = path.rstrip('.array.json')
-                # path = path.rstrip('.group.json')
+                # path = path.rstrip('.array' + sfx)
+                # path = path.rstrip('.group' + sfx)
                 # if (contains_array(self._store, path) or
                 #         contains_group(self._store, path)):
                 #     print(path)
                 #     yield path[len(self._key_prefix):]
-                if key.endswith(('.group.json', '.array.json')):
+                if key.endswith(('.group' + sfx, '.array' + sfx)):
                     yield key[name_start:]
             for prefix in prefixes:
                 yield prefix[name_start:]

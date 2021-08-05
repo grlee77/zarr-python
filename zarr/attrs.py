@@ -27,7 +27,6 @@ class Attributes(MutableMapping):
     def __init__(self, store, key='.zattrs', read_only=False, cache=True,
                  synchronizer=None):
 
-        assert not key.endswith(('root/.group', 'root/.group.json'))
         self._version = getattr(store, '_store_version', 2)
         assert key
 

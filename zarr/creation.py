@@ -168,9 +168,12 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
         raise ValueError("zarr_version must be 2 or 3")
     if store is None:
         if zarr_version == 2:
-            return Store._ensure_store(dict())
+            store = KVStore(dict())
         else:
-            return StoreV3._ensure_store(dict())
+            store = KVStoreV3(dict())
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
+        return store
     elif isinstance(store, str):
         mode = mode if clobber else "r"
         if zarr_version == 2:
@@ -186,22 +189,28 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
                 return DirectoryStore(store)
         elif zarr_version == 3:
             if "://" in store or "::" in store:
-                return FSStoreV3(store, mode=mode, **(storage_options or {}))
+                store = FSStoreV3(store, mode=mode, **(storage_options or {}))
             elif storage_options:
-                raise ValueError("storage_options passed with non-fsspec path")
+                store = ValueError("storage_options passed with non-fsspec path")
             if store.endswith('.zip'):
-                return ZipStoreV3(store, mode=mode)
+                store = ZipStoreV3(store, mode=mode)
             elif store.endswith('.n5'):
                 raise NotImplementedError("N5Store not yet implemented for V3")
                 # return N5StoreV3(store)
             else:
-                return DirectoryStoreV3(store)
+                store = DirectoryStoreV3(store)
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
+            return store
     elif zarr_version == 2:
         if not isinstance(store, Store) and isinstance(store, MutableMapping):
             store = KVStore(store)
     elif zarr_version == 3:
         if not isinstance(store, StoreV3) and isinstance(store, MutableMapping):
             store = KVStoreV3(store)
+        if 'zarr.json' not in store:
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
     return store
 
 

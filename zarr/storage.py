@@ -50,7 +50,7 @@ from zarr.errors import (
     FSPathExistNotDir,
     ReadOnlyError,
 )
-from zarr.meta import Metadata2, Metadata3
+from zarr.meta import Metadata2, Metadata3, _default_entry_point_metadata_v3
 from zarr.util import (buffer_size, json_loads, nolock, normalize_chunks,
                        normalize_dimension_separator,
                        normalize_dtype, normalize_fill_value, normalize_order,
@@ -207,31 +207,13 @@ def _path_to_prefix(path: Optional[str]) -> str:
 def _prefix_to_array_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
         if prefix:
-            # key = prefix.rstrip('/') + ".array.json"
-            key = "meta/root/" + prefix.rstrip("/") + ".array.json"
+            sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+            key = "meta/root/" + prefix.rstrip("/") + ".array" + sfx
         else:
-            key = "meta/root.array.json"  #TODO: should empty path be allowed?
-            raise ValueError(
-                "prefix must be supplied to initialize a zarr v3 array"
-            )
+            raise ValueError("prefix must be supplied to initialize a zarr v3 group")
     else:
         key = prefix + array_meta_key
     return key
-
-
-def _prefix_to_array_data_key(store: Store, prefix: str) -> str:
-    if getattr(store, "_store_version", 2) == 3:
-        if prefix:
-            # key = prefix.rstrip('/') + ".array.json"
-            key = "data/root/" + prefix.rstrip("/") + ".array.json"
-        else:
-            key = "data/root.array.json"  #TODO: should empty path be allowed?
-            raise ValueError(
-                "prefix must be supplied to initialize a zarr v3 array"
-            )
-    else:
-        raise NotImplementedError(
-            "_prefix_to_array_data_key only implemented for v3")
 
 
 def contains_array(store: Store, path: Path = None) -> bool:
@@ -245,16 +227,27 @@ def contains_array(store: Store, path: Path = None) -> bool:
 def _prefix_to_group_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
         if prefix:
-            # key = prefix.rstrip('/') + ".group.json"
-            key = "meta/root/" + prefix.rstrip('/') + ".group.json"
+            sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+            key = "meta/root/" + prefix.rstrip('/') + ".group" + sfx
         else:
-            key = "meta/root.group.json"  # TODO: should empty path be allowed?
-            raise ValueError(
-                "prefix must be supplied to initialize a zarr v3 group"
-            )
+            raise ValueError("prefix must be supplied to initialize a zarr v3 group")
     else:
         key = prefix + group_meta_key
     return key
+
+
+# TODO: Should this return default metadata or raise an Error if zarr.json
+#       is absent?
+def _get_hierarchy_metadata(store=None):
+    meta = _default_entry_point_metadata_v3
+    if store is not None:
+        version = getattr(store, '_store_version', 2)
+        if version < 3:
+            raise ValueError("metadata key suffix not stored for zarr "
+                             f"v{version} stores")
+        if 'zarr.json' in store:
+            meta = store._metadata_class.decode_hierarchy_metadata(store['zarr.json'])
+    return meta
 
 
 def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
@@ -268,7 +261,8 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
         if key in store:
             return True
         # for v3, need to also handle implicit groups
-        implicit_prefix = key.replace('.group.json', '/')
+        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+        implicit_prefix = key.replace('.group' + sfx, '/')
         if store.list_prefix(implicit_prefix):
             return True
         return False
@@ -276,10 +270,11 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
 def _prefix_to_attrs_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
         # for v3, attributes are stored in the array metadata
+        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
         if prefix:
-            key = "meta/root/" + prefix + ".array.json"
+            key = "meta/root/" + prefix + ".array" + sfx
         else:
-            key = "meta/root.array.json"
+            raise ValueError("must provide prefix for v3")
     else:
         key = prefix + attrs_key
     return key
@@ -331,13 +326,14 @@ def _rename_from_keys(store: Store, src_path: str, dst_path: str) -> None:
                 new_key = _dst_prefix + key.lstrip(_src_prefix)
                 store[new_key] = store.pop(key)
     if version == 3:
-        _src_array_json = 'meta/root/' + src_prefix[:-1] + '.array.json'
+        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+        _src_array_json = 'meta/root/' + src_prefix[:-1] + '.array' + sfx
         if _src_array_json in store:
-            new_key = 'meta/root/' + dst_prefix[:-1] + '.array.json'
+            new_key = 'meta/root/' + dst_prefix[:-1] + '.array' + sfx
             store[new_key] = store.pop(_src_array_json)
-        _src_group_json = 'meta/root/' + src_prefix[:-1] + '.group.json'
+        _src_group_json = 'meta/root/' + src_prefix[:-1] + '.group' + sfx
         if _src_group_json in store:
-            new_key = 'meta/root/' + dst_prefix[:-1] + '.group.json'
+            new_key = 'meta/root/' + dst_prefix[:-1] + '.group' + sfx
             store[new_key] = store.pop(_src_group_json)
 
 
@@ -376,11 +372,11 @@ def _norm(k):
     return k
 
 
-def _norm_v3(k):
+def _norm_v3(k, metadata_key_suffix='.json'):
     # normalize for v3 keys
-    if k.endswith(".group.json"):
+    if k.endswith(".group" + metadata_key_suffix):
         return k[:-11] + "/"
-    elif k.endswith(".array.json"):
+    elif k.endswith(".array" + metadata_key_suffix):
         return k[:-11]
     elif k.startswith('/meta/root/', '/data/root/'):
         return k[10:]
@@ -402,10 +398,11 @@ def listdir(store: Store, path: Path = None):
         meta_keys = []
         include_meta_keys = False
         if include_meta_keys:
-            group_meta_key = dir_path + '.group.json'
+            sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+            group_meta_key = dir_path + '.group' + sfx
             if group_meta_key in store:
                 meta_keys.append(group_meta_key[path_start:])
-            array_meta_key = dir_path + '.array.json'
+            array_meta_key = dir_path + '.array' + sfx
             if array_meta_key in store:
                 meta_keys.append(array_meta_key[path_start:])
         if not dir_path.endswith('/'):
@@ -450,10 +447,11 @@ def getsize(store: Store, path: Path = None) -> int:
         else:
             if getattr(store, '_store_version', 2) == 3:
                 size = 0
-                # array_key = 'meta/root/' + path + '.array.json'
+                # sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+                # array_key = 'meta/root/' + path + '.array' + sfx
                 # if array_key in store:
                 #     size += buffer_size(store[array_key])
-                # group_key = 'meta/root/' + path + '.group.json'
+                # group_key = 'meta/root/' + path + '.group' + sfx
                 # if group_key in store:
                 #     size += buffer_size(store[group_key])
                 # prefix = _path_to_prefix(path)
@@ -693,7 +691,8 @@ def _init_array_metadata(
             if '/' in path:
                 # path is a subfolder of an existing array, remove that array
                 parent_path = '/'.join(path.split('/')[:-1])
-                array_key = 'meta/root/' + parent_path + '.array.json'
+                sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+                array_key = 'meta/root/' + parent_path + '.array' + sfx
                 if array_key in store:
                     store.erase(array_key)
 
@@ -711,7 +710,8 @@ def _init_array_metadata(
                     raise ContainsArrayError(path)
             # cannot create an array of the same name as an existing group
             # # check for explicit group at the path
-            # group_key = 'meta/root/' + path + '.group.json'
+            # sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+            # group_key = 'meta/root/' + path + '.group' + sfx
             # if group_key in store:
             #     raise ContainsGroupError(path)
             # check for implicit group at the path
@@ -3541,7 +3541,7 @@ class FSStoreV3(FSStore, StoreV3):
     #             meta_dir_path = self.dir_path(meta_path)
     #             path_is_group = self.fs.isdir(meta_dir_path)
     #             if not path_is_group:
-    #                 array_meta_path = meta_dir_path + '.array.json'
+    #                 array_meta_path = meta_dir_path + '.array' + sfx
     #                 path_is_array = self.fs.exists(array_meta_path)
 
     #         if path_is_array:
@@ -3646,7 +3646,7 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
             self.path == other.path
         )
 
-    def rename(self, src_path, dst_path):
+    def rename(self, src_path, dst_path, metadata_key_suffix='.json'):
         store_src_path = normalize_storage_path(src_path)
         store_dst_path = normalize_storage_path(dst_path)
 
@@ -3659,7 +3659,8 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
                 dst_path = os.path.join(dir_path, root_prefix, 'root', store_dst_path)
                 os.renames(src_path, dst_path)
 
-        for suffix in ['.array.json', '.group.json']:
+        for suffix in ['.array' + metadata_key_suffix,
+                       '.group' + metadata_key_suffix]:
             src_meta = os.path.join(dir_path, 'meta', 'root', store_src_path + suffix)
             if os.path.exists(src_meta):
                 any_existed = True
@@ -3670,7 +3671,6 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
                 os.rename(src_meta, dst_meta)
         if not any_existed:
             raise FileNotFoundError("nothing found at src_path")
-        # TODO: also rename .array.json, .group.json files?
 
 
 DirectoryStoreV3.__doc__ = DirectoryStore.__doc__

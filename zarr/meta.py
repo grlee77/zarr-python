@@ -24,6 +24,14 @@ _v3_core_type = set(
 _v3_core_type = {"bool", "i1", "u1"} | _v3_core_type
 
 
+_default_entry_point_metadata_v3 = {
+    'zarr_format': "https://purl.org/zarr/spec/protocol/core/3.0",
+    'metadata_encoding': "https://purl.org/zarr/spec/protocol/core/3.0",
+    'metadata_key_suffix': '.json',
+    "extensions": [],
+}
+
+
 class Metadata2:
     ZARR_FORMAT = ZARR_FORMAT
 
@@ -257,6 +265,35 @@ class Metadata3(Metadata2):
             meta = {'attributes': {}}
         meta = dict(attributes=meta.get("attributes", {}))
         return json_dumps(meta)
+
+    @classmethod
+    def encode_hierarchy_metadata(cls, meta=None):
+        if meta is None:
+            meta = _default_entry_point_metadata_v3
+        elif set(meta.keys()) != {
+                "zarr_format",
+                "metadata_encoding",
+                "metadata_key_suffix",
+                "extensions",
+        }:
+            raise ValueError(f"Unexpected keys in metadata. meta={meta}")
+        return json_dumps(meta)
+
+    @classmethod
+    def decode_hierarchy_metadata(cls, s) -> dict:
+        meta = cls.parse_metadata(s)
+        # check metadata format
+        zarr_format = meta.get("zarr_format", None)
+        #if zarr_format != "https://purl.org/zarr/spec/protocol/core/3.0":
+        #    raise MetadataError("unsupported zarr format: %s" % zarr_format)
+        if set(meta.keys()) != {
+                "zarr_format",
+                "metadata_encoding",
+                "metadata_key_suffix",
+                "extensions",
+        }:
+            raise ValueError(f"Unexpected keys in metdata. meta={meta}")
+        return meta
 
     @classmethod
     def decode_array_metadata(cls, s) -> dict:
