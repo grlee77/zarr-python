@@ -3455,8 +3455,14 @@ class StoreV3(Store):
         """Remove all items from store."""
         self.erase_prefix("/")
 
+    #def __eq__(self, other):
+    #    return type(other) == type(self) and self.path == other.path
+
     def __eq__(self, other):
-        return type(other) == type(self) and self.path == other.path
+        if isinstance(other, KVStoreV3):
+            return self._mutable_mapping == other._mutable_mapping
+        else:
+            return NotImplemented
 
     @staticmethod
     def _ensure_store(store):
@@ -3601,6 +3607,12 @@ class MemoryStoreV3(MemoryStore, StoreV3):
             self.cls == other.cls
         )
 
+    def _get_parent(self, item: str):
+        raise NotImplementedError("TODO")
+
+    def _require_parent(self, item: str):
+        raise NotImplementedError("TODO")
+
     # modify listdir or set to NotImplementedError? (use list_dir instead?)
     # def listdir(self, path: Path = None) -> List[str]:
     #     path = normalize_storage_path(path)
@@ -3633,6 +3645,33 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
             isinstance(other, DirectoryStoreV3) and
             self.path == other.path
         )
+
+    def rename(self, src_path, dst_path):
+        store_src_path = normalize_storage_path(src_path)
+        store_dst_path = normalize_storage_path(dst_path)
+
+        dir_path = self.path
+        any_existed = False
+        for root_prefix in ['meta', 'data']:
+            src_path = os.path.join(dir_path, root_prefix, 'root', store_src_path)
+            if os.path.exists(src_path):
+                any_existed = True
+                dst_path = os.path.join(dir_path, root_prefix, 'root', store_dst_path)
+                os.renames(src_path, dst_path)
+
+        for suffix in ['.array.json', '.group.json']:
+            src_meta = os.path.join(dir_path, 'meta', 'root', store_src_path + suffix)
+            if os.path.exists(src_meta):
+                any_existed = True
+                dst_meta = os.path.join(dir_path, 'meta', 'root', store_dst_path + suffix)
+                dst_dir = os.path.dirname(dst_meta)
+                if not os.path.exists(dst_dir):
+                    os.makedirs(dst_dir)
+                os.rename(src_meta, dst_meta)
+        if not any_existed:
+            raise FileNotFoundError("nothing found at src_path")
+        # TODO: also rename .array.json, .group.json files?
+
 
 DirectoryStoreV3.__doc__ = DirectoryStore.__doc__
 

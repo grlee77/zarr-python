@@ -27,7 +27,10 @@ from zarr.storage import (ABSStore, DBMStore, KVStore, DirectoryStore, FSStore,
                           NestedDirectoryStore, SQLiteStore, ZipStore,
                           array_meta_key, atexit_rmglob, atexit_rmtree,
                           group_meta_key, init_array, init_group)
-from zarr.storage import KVStoreV3
+from zarr.storage import (KVStoreV3, MemoryStoreV3, DirectoryStoreV3,
+                          FSStoreV3, NestedDirectoryStoreV3, ZipStoreV3,
+                          DBMStoreV3, LMDBStoreV3, SQLiteStoreV3,
+                          LRUStoreCacheV3)
 from zarr.util import InfoReporter
 from zarr.tests.util import skip_test_env_var, have_fsspec, abs_container
 
@@ -1046,6 +1049,14 @@ class TestGroupWithMemoryStore(TestGroup):
         return MemoryStore(), None
 
 
+# TODO: fix MemoryStoreV3 _get_parent, etc.
+# # noinspection PyStatementEffect
+# class TestGroupV3WithMemoryStore(TestGroupWithMemoryStore, TestGroupV3):
+
+#     @staticmethod
+#     def create_store():
+#         return MemoryStoreV3(), None
+
 class TestGroupWithDirectoryStore(TestGroup):
 
     @staticmethod
@@ -1053,6 +1064,16 @@ class TestGroupWithDirectoryStore(TestGroup):
         path = tempfile.mkdtemp()
         atexit.register(atexit_rmtree, path)
         store = DirectoryStore(path)
+        return store, None
+
+
+class TestGroupV3WithDirectoryStore(TestGroupWithDirectoryStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        path = tempfile.mkdtemp()
+        atexit.register(atexit_rmtree, path)
+        store = DirectoryStoreV3(path)
         return store, None
 
 
@@ -1071,6 +1092,8 @@ class TestGroupWithABSStore(TestGroup):
         # internal attribute on ContainerClient isn't serializable for py36 and earlier
         super().test_pickle()
 
+# TODO TestGroupV3WithABSStore(TestGroup):
+
 
 class TestGroupWithNestedDirectoryStore(TestGroup):
 
@@ -1079,6 +1102,16 @@ class TestGroupWithNestedDirectoryStore(TestGroup):
         path = tempfile.mkdtemp()
         atexit.register(atexit_rmtree, path)
         store = NestedDirectoryStore(path)
+        return store, None
+
+
+class TestGroupV3WithNestedDirectoryStore(TestGroupWithNestedDirectoryStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        path = tempfile.mkdtemp()
+        atexit.register(atexit_rmtree, path)
+        store = NestedDirectoryStoreV3(path)
         return store, None
 
 
@@ -1105,6 +1138,29 @@ class TestGroupWithFSStore(TestGroup):
 
 
 @pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
+class TestGroupV3WithFSStore(TestGroupWithFSStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        pytest.skip("TODO: Fix for V3")
+        path = tempfile.mkdtemp()
+        atexit.register(atexit_rmtree, path)
+        store = FSStoreV3(path)
+        return store, None
+
+    def test_round_trip_nd(self):
+        data = np.arange(1000).reshape(10, 10, 10)
+        name = 'raw'
+
+        store, _ = self.create_store()
+        f = open_group(store, path='group', mode='w')
+        f.create_dataset(name, data=data, chunks=(5, 5, 5),
+                         compressor=None)
+        h = open_group(store, path='group', mode='r')
+        np.testing.assert_array_equal(h[name][:], data)
+
+
+@pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
 class TestGroupWithNestedFSStore(TestGroupWithFSStore):
 
     @staticmethod
@@ -1120,6 +1176,30 @@ class TestGroupWithNestedFSStore(TestGroupWithFSStore):
 
         store, _ = self.create_store()
         f = open_group(store, mode='w')
+
+        # cannot specify dimension_separator that conflicts with the store
+        with pytest.raises(ValueError):
+            f.create_dataset(name, data=data, chunks=(5, 5, 5),
+                             compressor=None, dimension_separator='.')
+
+
+@pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
+class TestGroupV3WithNestedFSStore(TestGroupV3WithFSStore):
+
+    @staticmethod
+    def create_store():
+        pytest.skip("TODO: Fix for V3")
+        path = tempfile.mkdtemp()
+        atexit.register(atexit_rmtree, path)
+        store = FSStoreV3(path, key_separator='/', auto_mkdir=True)
+        return store, None
+
+    def test_inconsistent_dimension_separator(self):
+        data = np.arange(1000).reshape(10, 10, 10)
+        name = 'raw'
+
+        store, _ = self.create_store()
+        f = open_group(store, path='group', mode='w')
 
         # cannot specify dimension_separator that conflicts with the store
         with pytest.raises(ValueError):
@@ -1154,6 +1234,16 @@ class TestGroupWithZipStore(TestGroup):
         pass
 
 
+class TestGroupV3WithZipStore(TestGroupWithZipStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        path = tempfile.mktemp(suffix='.zip')
+        atexit.register(os.remove, path)
+        store = ZipStoreV3(path)
+        return store, None
+
+
 class TestGroupWithDBMStore(TestGroup):
 
     @staticmethod
@@ -1161,6 +1251,16 @@ class TestGroupWithDBMStore(TestGroup):
         path = tempfile.mktemp(suffix='.anydbm')
         atexit.register(atexit_rmglob, path + '*')
         store = DBMStore(path, flag='n')
+        return store, None
+
+
+class TestGroupV3WithDBMStore(TestGroupWithDBMStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        path = tempfile.mktemp(suffix='.anydbm')
+        atexit.register(atexit_rmglob, path + '*')
+        store = DBMStoreV3(path, flag='n')
         return store, None
 
 
@@ -1175,6 +1275,17 @@ class TestGroupWithDBMStoreBerkeleyDB(TestGroup):
         return store, None
 
 
+class TestGroupV3WithDBMStoreBerkeleyDB(TestGroupWithDBMStoreBerkeleyDB, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        bsddb3 = pytest.importorskip("bsddb3")
+        path = tempfile.mktemp(suffix='.dbm')
+        atexit.register(os.remove, path)
+        store = DBMStoreV3(path, flag='n', open=bsddb3.btopen)
+        return store, None
+
+
 class TestGroupWithLMDBStore(TestGroup):
 
     @staticmethod
@@ -1186,6 +1297,17 @@ class TestGroupWithLMDBStore(TestGroup):
         return store, None
 
 
+class TestGroupV3WithLMDBStore(TestGroupWithLMDBStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        pytest.importorskip("lmdb")
+        path = tempfile.mktemp(suffix='.lmdb')
+        atexit.register(atexit_rmtree, path)
+        store = LMDBStoreV3(path)
+        return store, None
+
+
 class TestGroupWithSQLiteStore(TestGroup):
 
     def create_store(self):
@@ -1193,6 +1315,16 @@ class TestGroupWithSQLiteStore(TestGroup):
         path = tempfile.mktemp(suffix='.db')
         atexit.register(atexit_rmtree, path)
         store = SQLiteStore(path)
+        return store, None
+
+
+class TestGroupV3WithSQLiteStore(TestGroupWithSQLiteStore, TestGroupV3):
+
+    def create_store(self):
+        pytest.importorskip("sqlite3")
+        path = tempfile.mktemp(suffix='.db')
+        atexit.register(atexit_rmtree, path)
+        store = SQLiteStoreV3(path)
         return store, None
 
 
@@ -1227,6 +1359,40 @@ class TestGroupWithChunkStore(TestGroup):
         assert expect == actual
 
 
+class TestGroupV3WithChunkStore(TestGroupWithChunkStore, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        return KVStoreV3(dict()), KVStoreV3(dict())
+
+    def test_chunk_store(self):
+        # setup
+        store, chunk_store = self.create_store()
+        path = 'group1'
+        g = self.create_group(store, path=path, chunk_store=chunk_store)
+
+        # check attributes
+        assert store is g.store
+        assert chunk_store is g.chunk_store
+
+        # create array
+        a = g.zeros('foo', shape=100, chunks=10)
+        assert store is a.store
+        assert chunk_store is a.chunk_store
+        a[:] = np.arange(100)
+        assert_array_equal(np.arange(100), a[:])
+
+        # check store keys
+        group_key = 'meta/root/' + path + '.group.json'
+        array_key = 'meta/root/' + path + '/foo' + '.array.json'
+        expect = sorted([group_key, array_key])
+        actual = sorted(store.keys())
+        assert expect == actual
+        expect = ['data/root/' + path + '/foo/c' + str(i) for i in range(10)]
+        actual = sorted(chunk_store.keys())
+        assert expect == actual
+
+
 class TestGroupWithStoreCache(TestGroup):
 
     @staticmethod
@@ -1234,6 +1400,15 @@ class TestGroupWithStoreCache(TestGroup):
         store = LRUStoreCache(dict(), max_size=None)
         return store, None
 
+
+class TestGroupV3WithStoreCache(TestGroupWithStoreCache, TestGroupV3):
+
+    @staticmethod
+    def create_store():
+        store = LRUStoreCacheV3(dict(), max_size=None)
+        return store, None
+
+# TODO: group convenience function for v3 spec
 
 def test_group():
     # test the group() convenience function
@@ -1259,6 +1434,7 @@ def test_group():
     assert isinstance(g, Group)
     assert store is g.store
 
+# TODO: run test_open_group for v3 spec
 
 def test_open_group():
     # test the open_group() convenience function
@@ -1321,6 +1497,7 @@ def test_open_group():
     assert isinstance(g, Group)
     assert 'foo/bar' == g.path
 
+# TODO: run test_group_completions for v3 spec
 
 def test_group_completions():
     g = group()
@@ -1350,6 +1527,7 @@ def test_group_completions():
     assert '123' not in d  # not valid identifier
     assert '456' not in d  # not valid identifier
 
+# TODO: run test_group_key_completions for v3 spec
 
 def test_group_key_completions():
     g = group()
@@ -1425,6 +1603,7 @@ def _check_tree(g, expect_bytes, expect_text):
         widget = g.tree()._ipython_display_()
         isinstance(widget, ipytree.Tree)
 
+# TODO: run test_tree for v3 spec
 
 def test_tree():
     # setup
