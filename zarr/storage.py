@@ -257,13 +257,21 @@ def _prefix_to_group_key(store: Store, prefix: str) -> str:
     return key
 
 
-def contains_group(store: Store, path: Path = None) -> bool:
+def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
     """Return True if the store contains a group at the given logical path."""
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_group_key(store, prefix)
-    return key in store
-
+    if store._store_version == 2 or explicit_only:
+        return key in store
+    else:
+        if key in store:
+            return True
+        # for v3, need to also handle implicit groups
+        implicit_prefix = key.replace('.group.json', '/')
+        if store.list_prefix(implicit_prefix):
+            return True
+        return False
 
 def _prefix_to_attrs_key(store: Store, prefix: str) -> str:
     if getattr(store, "_store_version", 2) == 3:
@@ -310,10 +318,27 @@ def _rename_from_keys(store: Store, src_path: str, dst_path: str) -> None:
     # assume path already normalized
     src_prefix = _path_to_prefix(src_path)
     dst_prefix = _path_to_prefix(dst_path)
-    for key in list(store.keys()):
-        if key.startswith(src_prefix):
-            new_key = dst_prefix + key.lstrip(src_prefix)
-            store[new_key] = store.pop(key)
+    version = getattr(store, '_store_version', 2)
+    if version == 2:
+        root_prefixes = ['']
+    elif version == 3:
+        root_prefixes = ['meta/root/', 'data/root/']
+    for root_prefix in root_prefixes:
+        _src_prefix = root_prefix + src_prefix
+        _dst_prefix = root_prefix + dst_prefix
+        for key in list(store.keys()):
+            if key.startswith(_src_prefix):
+                new_key = _dst_prefix + key.lstrip(_src_prefix)
+                store[new_key] = store.pop(key)
+    if version == 3:
+        _src_array_json = 'meta/root/' + src_prefix[:-1] + '.array.json'
+        if _src_array_json in store:
+            new_key = 'meta/root/' + dst_prefix[:-1] + '.array.json'
+            store[new_key] = store.pop(_src_array_json)
+        _src_group_json = 'meta/root/' + src_prefix[:-1] + '.group.json'
+        if _src_group_json in store:
+            new_key = 'meta/root/' + dst_prefix[:-1] + '.group.json'
+            store[new_key] = store.pop(_src_group_json)
 
 
 def rename(store: Store, src_path: Path, dst_path: Path):
@@ -366,20 +391,39 @@ def listdir(store: Store, path: Path = None):
     method, this will be called, otherwise will fall back to implementation via the
     `MutableMapping` interface."""
     path = normalize_storage_path(path)
-    if getattr(store, "_store_version", None) == 3:
-        1 / 0
-        if not path.endswith("/"):
-            path = path + "/"
-        assert path.startswith("/")
-
-        res = {_norm_v3(k) for k in store.list_dir(path)}  # "meta/root" + path)}
-        for r in res:
-            assert not r.startswith("meta/")
-        return res
 
     if hasattr(store, 'listdir'):
         # pass through
         return store.listdir(path)  # type: ignore
+    elif getattr(store, "_store_version", None) == 3:
+        meta_prefix = 'meta/root/'
+        dir_path = meta_prefix + path
+        path_start = len(meta_prefix)  # len("meta/root/")
+        meta_keys = []
+        include_meta_keys = False
+        if include_meta_keys:
+            group_meta_key = dir_path + '.group.json'
+            if group_meta_key in store:
+                meta_keys.append(group_meta_key[path_start:])
+            array_meta_key = dir_path + '.array.json'
+            if array_meta_key in store:
+                meta_keys.append(array_meta_key[path_start:])
+        if not dir_path.endswith('/'):
+            dir_path += '/'
+        keys, prefixes = store.list_dir(dir_path)
+        keys = [k[path_start:] for k in keys]
+        prefixes = [p[path_start:] for p in prefixes]
+        return meta_keys + keys + prefixes
+
+        # if not path.endswith("/"):
+        #     path = path + "/"
+        # assert path.startswith("/")
+
+        # res = {_norm_v3(k) for k in store.list_dir(path)}  # "meta/root" + path)}
+        # for r in res:
+        #     assert not r.startswith("meta/")
+        # return res
+
     else:
         # slow version, iterate through all keys
         warnings.warn(
@@ -387,6 +431,7 @@ def listdir(store: Store, path: Path = None):
             "may want to inherit from `Store`.",
             stacklevel=2,
         )
+
         return _listdir_from_keys(store, path)
 
 
@@ -618,7 +663,9 @@ def _init_array_metadata(
     dimension_separator=None,
 ):
 
-    if getattr(store, '_store_version', 2) == 2:
+    version = getattr(store, '_store_version', 2)
+
+    if version == 2:
 
         # guard conditions
         if overwrite:
@@ -626,12 +673,11 @@ def _init_array_metadata(
             rmdir(store, path)
             if chunk_store is not None:
                 rmdir(chunk_store, path)
-
     else:
 
         # guard conditions
         if overwrite:
-            group_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            group_meta_key = _prefix_to_group_key(store, _path_to_prefix(path))
             array_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
             data_prefix = 'data/root/' + _path_to_prefix(path)
 
@@ -644,12 +690,35 @@ def _init_array_metadata(
             if chunk_store is not None:
                 chunk_store.erase_prefix(data_prefix)
 
+            if '/' in path:
+                # path is a subfolder of an existing array, remove that array
+                parent_path = '/'.join(path.split('/')[:-1])
+                array_key = 'meta/root/' + parent_path + '.array.json'
+                if array_key in store:
+                    store.erase(array_key)
+
     if not overwrite:
         if contains_array(store, path):
             raise ContainsArrayError(path)
         # elif store._store_version == 2 and contains_group(store, path):
-        elif contains_group(store, path):
+        elif contains_group(store, path, explicit_only=False):
             raise ContainsGroupError(path)
+        elif version == 3:
+            if '/' in path:
+                # cannot create an array within an existing array path
+                parent_path = '/'.join(path.split('/')[:-1])
+                if contains_array(store, parent_path):
+                    raise ContainsArrayError(path)
+            # cannot create an array of the same name as an existing group
+            # # check for explicit group at the path
+            # group_key = 'meta/root/' + path + '.group.json'
+            # if group_key in store:
+            #     raise ContainsGroupError(path)
+            # check for implicit group at the path
+            # if store.list_prefix('meta/root/' + path + '/'):
+            #     # implicit group
+            #     raise ContainsGroupError(path)
+
 
     # normalize metadata
     dtype, object_codec = normalize_dtype(dtype, object_codec)
@@ -782,7 +851,8 @@ def _init_group_metadata(
     chunk_store: Store = None,
 ):
 
-    if getattr(store, '_store_version', 2) == 2:
+    version = getattr(store, '_store_version', 2)
+    if version == 2:
         # guard conditions
         if overwrite:
             # attempt to delete any pre-existing items in store
@@ -790,9 +860,13 @@ def _init_group_metadata(
             if chunk_store is not None:
                 rmdir(chunk_store, path)
     else:
+        # TODO: use a default path for v3 groups?
+        # if path is None:
+        #     path = 'group'
+
         # guard conditions
         if overwrite:
-            group_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
+            group_meta_key = _prefix_to_group_key(store, _path_to_prefix(path))
             array_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
             data_prefix = 'data/root/' + _path_to_prefix(path)
 
@@ -811,6 +885,11 @@ def _init_group_metadata(
             raise ContainsArrayError(path)
         elif contains_group(store, path):
             raise ContainsGroupError(path)
+        elif version == 3 and '/' in path:
+            # cannot create a group overlapping with an existing array name
+            parent_path = '/'.join(path.split('/')[:-1])
+            if contains_array(store, parent_path):
+                raise ContainsArrayError(path)
 
     # initialize metadata
     # N.B., currently no metadata properties are needed, however there may

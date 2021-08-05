@@ -15,7 +15,7 @@ from zarr.creation import (array, create, empty, empty_like, full, full_like,
                            zeros_like)
 from zarr.hierarchy import open_group
 from zarr.n5 import N5Store
-from zarr.storage import DirectoryStore
+from zarr.storage import DirectoryStore, DirectoryStoreV3
 from zarr.sync import ThreadSynchronizer
 
 
@@ -179,7 +179,7 @@ def test_full_additional_dtypes(zarr_version):
 
 # TODO: enable zarr_version in open_gruop
 
-@pytest.mark.parametrize('zarr_version', [None, 2])
+@pytest.mark.parametrize('zarr_version', [None, 2, 3])
 def test_open_array(zarr_version):
 
     store = 'data/array.zarr'
@@ -198,7 +198,7 @@ def test_open_array(zarr_version):
     assert_array_equal(np.full(100, fill_value=42), z[:])
 
     # mode in 'r', 'r+'
-    open_group('data/group.zarr', mode='w')  # TODO: , **kwargs
+    open_group('data/group.zarr', mode='w', **kwargs)
     for mode in 'r', 'r+':
         with pytest.raises(ValueError):
             open_array('doesnotexist', mode=mode)
@@ -239,7 +239,11 @@ def test_open_array(zarr_version):
     assert (100,) == z.shape
     assert (10,) == z.chunks
     assert_array_equal(np.full(100, fill_value=42), z[:])
-    with pytest.raises(ValueError):
+
+    expected_error = TypeError if zarr_version == 3 else ValueError
+    # v3 path does not conflict, but will raise TypeError without shape kwarg
+    with pytest.raises(expected_error):
+        # array would end up at data/group.zarr/meta/root/array.array.json
         open_array('data/group.zarr', mode='a', **kwargs)
 
     # mode in 'w-', 'x'
@@ -257,7 +261,9 @@ def test_open_array(zarr_version):
         assert_array_equal(np.full(100, fill_value=42), z[:])
         with pytest.raises(ValueError):
             open_array(store, mode=mode, **kwargs)
-        with pytest.raises(ValueError):
+        expected_error = TypeError if zarr_version == 3 else ValueError
+        # v3 path does not conflict, but will raise TypeError without shape kwarg
+        with pytest.raises(expected_error):
             open_array('data/group.zarr', mode=mode, **kwargs)
 
     # with synchronizer
@@ -278,6 +284,14 @@ def test_open_array(zarr_version):
     assert os.path.abspath(meta_store) == z.store.path
     assert os.path.abspath(chunk_store) == z.chunk_store.path
 
+
+# TODO: N5 support for v3
+@pytest.mark.parametrize('zarr_version', [None, 2])
+def test_open_array_n5(zarr_version):
+
+    store = 'data/array.zarr'
+    kwargs = {'zarr_version': zarr_version}
+
     # for N5 store
     store = 'data/array.n5'
     z = open_array(store, mode='w', shape=100, chunks=10, **kwargs)
@@ -289,7 +303,7 @@ def test_open_array(zarr_version):
     assert_array_equal(np.full(100, fill_value=42), z[:])
 
     store = 'data/group.n5'
-    z = open_group(store, mode='w')  # TODO: , **kwargs)
+    z = open_group(store, mode='w', **kwargs)
     i = z.create_group('inner')
     a = i.zeros("array", shape=100, chunks=10)
     a[:] = 42
@@ -299,7 +313,7 @@ def test_open_array(zarr_version):
         o.write("{}")
 
     # Re-open
-    a = open_group(store)["inner"]["array"]   # TODO: , **kwargs
+    a = open_group(store, **kwargs)["inner"]["array"]
     assert isinstance(a, Array)
     assert isinstance(z.store, N5Store)
     assert (100,) == a.shape

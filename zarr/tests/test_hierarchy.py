@@ -27,6 +27,7 @@ from zarr.storage import (ABSStore, DBMStore, KVStore, DirectoryStore, FSStore,
                           NestedDirectoryStore, SQLiteStore, ZipStore,
                           array_meta_key, atexit_rmglob, atexit_rmtree,
                           group_meta_key, init_array, init_group)
+from zarr.storage import KVStoreV3
 from zarr.util import InfoReporter
 from zarr.tests.util import skip_test_env_var, have_fsspec, abs_container
 
@@ -96,30 +97,51 @@ class TestGroup(unittest.TestCase):
             Group(store, chunk_store=chunk_store)
         store.close()
 
+    def _subgroup_path(self, group, path):
+        path = path.rstrip('/')
+        absolute = path.startswith('/')
+        if absolute:
+            group_path = path
+        else:
+            if path:
+                group_path = '/'.join([group.path, path])
+            else:
+                group_path = path
+        group_path = group_path.lstrip('/')
+        group_name = '/' + group_path
+        return group_path, group_name
+
     def test_create_group(self):
         g1 = self.create_group()
 
+        if g1._version == 2:
+            path, name = '', '/'
+        else:
+            path, name = 'group', '/group'
         # check root group
-        assert '' == g1.path
-        assert '/' == g1.name
+        assert path == g1.path
+        assert name == g1.name
 
         # create level 1 child group
         g2 = g1.create_group('foo')
+        path, name = self._subgroup_path(g1, 'foo')
         assert isinstance(g2, Group)
-        assert 'foo' == g2.path
-        assert '/foo' == g2.name
+        assert path == g2.path
+        assert name == g2.name
 
         # create level 2 child group
         g3 = g2.create_group('bar')
+        path, name = self._subgroup_path(g2, 'bar')
         assert isinstance(g3, Group)
-        assert 'foo/bar' == g3.path
-        assert '/foo/bar' == g3.name
+        assert path == g3.path
+        assert name == g3.name
 
         # create level 3 child group
         g4 = g1.create_group('foo/bar/baz')
+        path, name = self._subgroup_path(g1, 'foo/bar/baz')
         assert isinstance(g4, Group)
-        assert 'foo/bar/baz' == g4.path
-        assert '/foo/bar/baz' == g4.name
+        assert path == g4.path
+        assert name == g4.name
 
         # create level 3 group via root
         g5 = g4.create_group('/a/b/c/')
@@ -138,17 +160,23 @@ class TestGroup(unittest.TestCase):
 
         o = Foo('test/object')
         go = g1.create_group(o)
+        path, name = self._subgroup_path(g1, str(o))
         assert isinstance(go, Group)
-        assert 'test/object' == go.path
+        assert path == go.path
         go = g1.create_group(b'test/bytes')
+        path, name = self._subgroup_path(g1, 'test/bytes')
         assert isinstance(go, Group)
-        assert 'test/bytes' == go.path
+        assert path == go.path
 
         # test bad keys
         with pytest.raises(ValueError):
             g1.create_group('foo')  # already exists
-        with pytest.raises(ValueError):
-            g1.create_group('a/b/c')  # already exists
+        if g1._version == 2:
+            with pytest.raises(ValueError):
+                g1.create_group('a/b/c')  # already exists
+        elif g1._version == 3:
+            # for v3 'group/a/b/c' does not already exist
+            g1.create_group('a/b/c')
         with pytest.raises(ValueError):
             g4.create_group('/a/b/c')  # already exists
         with pytest.raises(ValueError):
@@ -161,9 +189,9 @@ class TestGroup(unittest.TestCase):
         # multi
         g6, g7 = g1.create_groups('y', 'z')
         assert isinstance(g6, Group)
-        assert g6.path == 'y'
+        assert g6.path == self._subgroup_path(g1, 'y')[0]
         assert isinstance(g7, Group)
-        assert g7.path == 'z'
+        assert g7.path == self._subgroup_path(g1, 'z')[0]
 
         g1.store.close()
 
@@ -172,14 +200,17 @@ class TestGroup(unittest.TestCase):
 
         # test creation
         g2 = g1.require_group('foo')
+        path, name = self._subgroup_path(g1, 'foo')
         assert isinstance(g2, Group)
-        assert 'foo' == g2.path
+        assert path == g2.path
         g3 = g2.require_group('bar')
+        path, name = self._subgroup_path(g2, 'bar')
         assert isinstance(g3, Group)
-        assert 'foo/bar' == g3.path
+        assert path == g3.path
         g4 = g1.require_group('foo/bar/baz')
+        path, name = self._subgroup_path(g1, 'foo/bar/baz')
         assert isinstance(g4, Group)
-        assert 'foo/bar/baz' == g4.path
+        assert path == g4.path
         g5 = g4.require_group('/a/b/c/')
         assert isinstance(g5, Group)
         assert 'a/b/c' == g5.path
@@ -199,33 +230,50 @@ class TestGroup(unittest.TestCase):
         assert g5.store is g5a.store
 
         # test path normalization
-        assert g1.require_group('quux') == g1.require_group('/quux/')
+        if g1._version == 2:
+            # TODO: expected behavior for v3
+            assert g1.require_group('quux') == g1.require_group('/quux/')
 
         # multi
         g6, g7 = g1.require_groups('y', 'z')
         assert isinstance(g6, Group)
-        assert g6.path == 'y'
+        assert g6.path == self._subgroup_path(g1, 'y')[0]
         assert isinstance(g7, Group)
-        assert g7.path == 'z'
+        assert g7.path == self._subgroup_path(g1, 'z')[0]
 
         g1.store.close()
+
+    def _dataset_path(self, group, path):
+        path = path.rstrip('/')
+        absolute = path.startswith('/')
+        if absolute:
+            dataset_path = path
+        else:
+            dataset_path = '/'.join([group.path, path])
+        dataset_path = dataset_path.lstrip('/')
+        dataset_name = '/' + dataset_path
+        return dataset_path, dataset_name
 
     def test_create_dataset(self):
         g = self.create_group()
 
         # create as immediate child
-        d1 = g.create_dataset('foo', shape=1000, chunks=100)
+        dpath = 'foo'
+        d1 = g.create_dataset(dpath, shape=1000, chunks=100)
+        path, name = self._dataset_path(g, dpath)
         assert isinstance(d1, Array)
         assert (1000,) == d1.shape
         assert (100,) == d1.chunks
-        assert 'foo' == d1.path
-        assert '/foo' == d1.name
+        assert path == d1.path
+        assert name == d1.name
         assert g.store is d1.store
 
         # create as descendant
-        d2 = g.create_dataset('/a/b/c/', shape=2000, chunks=200, dtype='i1',
+        dpath = '/a/b/c/'
+        d2 = g.create_dataset(dpath, shape=2000, chunks=200, dtype='i1',
                               compression='zlib', compression_opts=9,
                               fill_value=42, order='F')
+        path, name = self._dataset_path(g, dpath)
         assert isinstance(d2, Array)
         assert (2000,) == d2.shape
         assert (200,) == d2.chunks
@@ -234,20 +282,22 @@ class TestGroup(unittest.TestCase):
         assert 9 == d2.compressor.level
         assert 42 == d2.fill_value
         assert 'F' == d2.order
-        assert 'a/b/c' == d2.path
-        assert '/a/b/c' == d2.name
+        assert path == d2.path
+        assert name == d2.name
         assert g.store is d2.store
 
         # create with data
         data = np.arange(3000, dtype='u2')
-        d3 = g.create_dataset('bar', data=data, chunks=300)
+        dpath = 'bar'
+        d3 = g.create_dataset(dpath, data=data, chunks=300)
+        path, name = self._dataset_path(g, dpath)
         assert isinstance(d3, Array)
         assert (3000,) == d3.shape
         assert (300,) == d3.chunks
         assert np.dtype('u2') == d3.dtype
         assert_array_equal(data, d3[:])
-        assert 'bar' == d3.path
-        assert '/bar' == d3.name
+        assert path == d3.path
+        assert name == d3.name
         assert g.store is d3.store
 
         # compression arguments handling follows...
@@ -290,25 +340,27 @@ class TestGroup(unittest.TestCase):
         g = self.create_group()
 
         # create
-        d1 = g.require_dataset('foo', shape=1000, chunks=100, dtype='f4')
+        dpath = 'foo'
+        d1 = g.require_dataset(dpath, shape=1000, chunks=100, dtype='f4')
         d1[:] = np.arange(1000)
+        path, name = self._dataset_path(g, dpath)
         assert isinstance(d1, Array)
         assert (1000,) == d1.shape
         assert (100,) == d1.chunks
         assert np.dtype('f4') == d1.dtype
-        assert 'foo' == d1.path
-        assert '/foo' == d1.name
+        assert path == d1.path
+        assert name == d1.name
         assert g.store is d1.store
         assert_array_equal(np.arange(1000), d1[:])
 
         # require
-        d2 = g.require_dataset('foo', shape=1000, chunks=100, dtype='f4')
+        d2 = g.require_dataset(dpath, shape=1000, chunks=100, dtype='f4')
         assert isinstance(d2, Array)
         assert (1000,) == d2.shape
         assert (100,) == d2.chunks
         assert np.dtype('f4') == d2.dtype
-        assert 'foo' == d2.path
-        assert '/foo' == d2.name
+        assert path == d2.path
+        assert name == d2.name
         assert g.store is d2.store
         assert_array_equal(np.arange(1000), d2[:])
         assert d1 == d2
@@ -402,14 +454,15 @@ class TestGroup(unittest.TestCase):
                 g2 = g.create_group('foo', overwrite=True)
                 assert 0 == len(g2)
                 # overwrite group with array
-                d = getattr(g, method_name)('foo', shape=300, chunks=30,
-                                            overwrite=True)
+                d = getattr(g, method_name)('foo', shape=300, chunks=30, overwrite=True)
                 assert (300,) == d.shape
                 # overwrite array with group
                 d = getattr(g, method_name)('foo/bar', shape=400, chunks=40,
                                             overwrite=True)
                 assert (400,) == d.shape
-                assert isinstance(g['foo'], Group)
+                # TODO: handle implicit group for v3?
+                if g._version == 2:
+                    assert isinstance(g['foo'], Group)
 
                 g.store.close()
         except NotImplementedError:
@@ -424,37 +477,53 @@ class TestGroup(unittest.TestCase):
         d2 = g1.create_dataset('foo/baz', shape=3000, chunks=300)
         d2[:] = np.arange(3000)
 
+        if g1._version == 3:
+            pytest.skip("TODO: fix for V3")
+
         # test __getitem__
-        assert isinstance(g1['foo'], Group)
-        assert isinstance(g1['foo']['bar'], Group)
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            assert isinstance(g1['foo'], Group)
+            assert isinstance(g1['foo']['bar'], Group)
         assert isinstance(g1['foo/bar'], Group)
-        assert isinstance(g1['/foo/bar/'], Group)
+        if g1._version == 2:
+            assert isinstance(g1['/foo/bar/'], Group)
         assert isinstance(g1['foo/baz'], Array)
         assert g2 == g1['foo/bar']
-        assert g1['foo']['bar'] == g1['foo/bar']
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            assert g1['foo']['bar'] == g1['foo/bar']
         assert d2 == g1['foo/baz']
         assert_array_equal(d2[:], g1['foo/baz'])
-        assert isinstance(g1['a'], Group)
-        assert isinstance(g1['a']['b'], Group)
-        assert isinstance(g1['a/b'], Group)
-        assert isinstance(g1['a']['b']['c'], Array)
-        assert isinstance(g1['a/b/c'], Array)
-        assert d1 == g1['a/b/c']
-        assert g1['a']['b']['c'] == g1['a/b/c']
-        assert_array_equal(d1[:], g1['a/b/c'][:])
+
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            # these will be group/a, group/a/b, etc. in v3 since path='group'
+            assert isinstance(g1['a'], Group)
+            assert isinstance(g1['a']['b'], Group)
+            assert isinstance(g1['a/b'], Group)
+            assert isinstance(g1['a']['b']['c'], Array)
+            assert isinstance(g1['a/b/c'], Array)
+            assert d1 == g1['a/b/c']
+            assert g1['a']['b']['c'] == g1['a/b/c']
+            assert_array_equal(d1[:], g1['a/b/c'][:])
 
         # test __contains__
         assert 'foo' in g1
         assert 'foo/bar' in g1
         assert 'foo/baz' in g1
-        assert 'bar' in g1['foo']
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            assert 'bar' in g1['foo']
         assert 'a' in g1
         assert 'a/b' in g1
         assert 'a/b/c' in g1
         assert 'baz' not in g1
         assert 'a/b/c/d' not in g1
         assert 'a/z' not in g1
-        assert 'quux' not in g1['foo']
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            assert 'quux' not in g1['foo']
 
         # test key errors
         with pytest.raises(KeyError):
@@ -464,7 +533,9 @@ class TestGroup(unittest.TestCase):
 
         # test __len__
         assert 2 == len(g1)
-        assert 2 == len(g1['foo'])
+        if g1._version == 2:
+            # TODO: hand implicit group for v3 spec
+            assert 2 == len(g1['foo'])
         assert 0 == len(g1['foo/bar'])
         assert 1 == len(g1['a'])
         assert 1 == len(g1['a/b'])
@@ -664,6 +735,9 @@ class TestGroup(unittest.TestCase):
         d3 = g2.create_dataset('zab', shape=2000, chunks=200)
         d3[:] = np.arange(2000)
 
+        if g1._version == 3:
+            pytest.skip("TODO: fix for V3")
+
         # test recursive array_keys
         array_keys = list(g1['foo'].array_keys(recurse=False))
         array_keys_recurse = list(g1['foo'].array_keys(recurse=True))
@@ -762,9 +836,13 @@ class TestGroup(unittest.TestCase):
         g2.move("bar", "/bar")
         assert "foo2" in g
         assert "foo2/bar" not in g
-        assert "bar" in g
+        if g2._version == 2:
+            # TODO: how to access element created outside of group.path in v3?
+            assert "bar" in g
         assert isinstance(g["foo2"], Group)
-        assert_array_equal(data, g["bar"])
+        if g2._version == 2:
+            # TODO: how to access element created outside of group.path in v3?
+            assert_array_equal(data, g["bar"])
 
         with pytest.raises(ValueError):
             g2.move("bar", "bar2")
@@ -841,6 +919,9 @@ class TestGroup(unittest.TestCase):
         g1 = self.create_group()
         g2 = g1.create_group('foo/bar')
 
+        if g1._version == 3:
+            pytest.skip("TODO: update class for v3")
+
         assert g1 == g1['/']
         assert g1 == g1['//']
         assert g1 == g1['///']
@@ -893,7 +974,9 @@ class TestGroup(unittest.TestCase):
         assert name == g2.name
         assert n == len(g2)
         assert keys == list(g2)
-        assert isinstance(g2['foo'], Group)
+        if g2._version == 2:
+            # TODO: handle implicit group for v3
+            assert isinstance(g2['foo'], Group)
         assert isinstance(g2['foo/bar'], Array)
 
         g2.store.close()
@@ -904,6 +987,57 @@ class TestGroup(unittest.TestCase):
             d = g.create_dataset('foo/bar', shape=100, chunks=10)
             d[:] = np.arange(100)
 
+
+# noinspection PyStatementEffect
+class TestGroupV3(TestGroup, unittest.TestCase):
+
+    @staticmethod
+    def create_store():
+        # can be overridden in sub-classes
+        return KVStoreV3(dict()), None
+
+    def create_group(self, store=None, path='group', read_only=False,
+                     chunk_store=None, synchronizer=None):
+        # can be overridden in sub-classes
+        if store is None:
+            store, chunk_store = self.create_store()
+        init_group(store, path=path, chunk_store=chunk_store)
+        g = Group(store, path=path, read_only=read_only,
+                  chunk_store=chunk_store, synchronizer=synchronizer)
+        return g
+
+    def test_group_init_1(self):
+        store, chunk_store = self.create_store()
+        g = self.create_group(store, chunk_store=chunk_store)
+        assert store is g.store
+        if chunk_store is None:
+            assert store is g.chunk_store
+        else:
+            assert chunk_store is g.chunk_store
+        assert not g.read_only
+        assert 'group' == g.path
+        assert '/group' == g.name
+        assert 'group' == g.basename
+
+        # TODO: how to handle Attributes for V3?
+        if False:
+            assert isinstance(g.attrs, Attributes)
+            g.attrs['foo'] = 'bar'
+            assert g.attrs['foo'] == 'bar'
+
+        assert isinstance(g.info, InfoReporter)
+        assert isinstance(repr(g.info), str)
+        assert isinstance(g.info._repr_html_(), str)
+        store.close()
+
+    def test_group_init_errors_2(self):
+        store, chunk_store = self.create_store()
+        path = 'tmp'
+        init_array(store, path=path, shape=1000, chunks=100, chunk_store=chunk_store)
+        # array blocks group
+        with pytest.raises(ValueError):
+            Group(store, path=path, chunk_store=chunk_store)
+        store.close()
 
 class TestGroupWithMemoryStore(TestGroup):
 
