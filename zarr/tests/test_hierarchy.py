@@ -1386,7 +1386,7 @@ class TestGroupV3WithChunkStore(TestGroupWithChunkStore, TestGroupV3):
         # check store keys
         group_key = 'meta/root/' + path + '.group.json'
         array_key = 'meta/root/' + path + '/foo' + '.array.json'
-        expect = sorted([group_key, array_key])
+        expect = sorted([group_key, array_key, 'zarr.json'])
         actual = sorted(store.keys())
         assert expect == actual
         expect = ['data/root/' + path + '/foo/c' + str(i) for i in range(10)]

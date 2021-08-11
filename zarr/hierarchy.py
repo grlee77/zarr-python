@@ -149,7 +149,15 @@ class Group(MutableMapping):
             assert not mkey.endswith("root/.group")
             meta_bytes = store[mkey]
         except KeyError:
-            raise GroupNotFoundError(path)
+            if self._version == 2:
+                raise GroupNotFoundError(path)
+            else:
+                implicit_prefix = 'meta/root/' + self._key_prefix
+                if self._store.list_prefix(implicit_prefix):
+                    # implicit group does not have any metadata
+                    self._meta = None
+                else:
+                    raise GroupNotFoundError(path)
         else:
             meta = store._metadata_class.decode_group_metadata(meta_bytes)
             self._meta = meta
@@ -158,6 +166,8 @@ class Group(MutableMapping):
         if self._version == 2:
             akey = self._key_prefix + attrs_key
         else:
+            # Note: mkey doesn't actually exist for implicit groups, but the
+            # object can still be created.
             akey = mkey
         self._attrs = Attributes(store, key=akey, read_only=read_only,
                                  cache=cache_attrs, synchronizer=synchronizer)
@@ -257,24 +267,33 @@ class Group(MutableMapping):
                     yield key
         else:
             # TODO: fix behavior for v3
-            dir_path = 'meta/root/' + self._key_prefix
-            path_start = 10  # len("meta/root/")
-            name_start = len(dir_path)
-            keys, prefixes = self._store.list_dir(dir_path)
+            # TODO: Should this iterate over data folders and/or metadata
+            #       folders and/or metadata files
+            if False:
+                dir_path = 'meta/root/' + self._key_prefix
+                name_start = len(dir_path)
+                keys, prefixes = self._store.list_dir(dir_path)
 
-            sfx = self._metadata_key_suffix
-            for key in keys:
-                # path = key[path_start:]
-                # path = path.rstrip('.array' + sfx)
-                # path = path.rstrip('.group' + sfx)
-                # if (contains_array(self._store, path) or
-                #         contains_group(self._store, path)):
-                #     print(path)
-                #     yield path[len(self._key_prefix):]
-                if key.endswith(('.group' + sfx, '.array' + sfx)):
-                    yield key[name_start:]
-            for prefix in prefixes:
-                yield prefix[name_start:]
+                sfx = self._metadata_key_suffix
+                for key in keys:
+                    # path_start = 10  # len("meta/root/")
+                    # path = key[path_start:]
+                    # path = path.rstrip('.array' + sfx)
+                    # path = path.rstrip('.group' + sfx)
+                    # if (contains_array(self._store, path) or
+                    #         contains_group(self._store, path)):
+                    #     print(path)
+                    #     yield path[len(self._key_prefix):]
+                    if key.endswith(('.group' + sfx, '.array' + sfx)):
+                        yield key[name_start:]
+                for prefix in prefixes:
+                    yield prefix[name_start:].rstrip('/')
+
+            data_dir_path = 'data/root/' + self._key_prefix
+            name_start = len(data_dir_path)
+            keys, data_prefixes = self._store.list_dir(data_dir_path)
+            for data_prefix in data_prefixes:
+                yield data_prefix[name_start:].rstrip('/')
 
     def __len__(self):
         """Number of members."""
@@ -404,9 +423,11 @@ class Group(MutableMapping):
                          synchronizer=self._synchronizer)
         elif self._version == 3:
             implicit_group = 'meta/root/' + path + '/'
-            # print(f"implicit_group = {implicit_group}")
+            # non-empty folder in the metadata path implies an implicit group
             if self._store.list_prefix(implicit_group):
-                raise NotImplementedError("TODO: handling for implicit groups")
+                return Group(self._store, read_only=self._read_only, path=path,
+                             chunk_store=self._chunk_store, cache_attrs=self.attrs.cache,
+                             synchronizer=self._synchronizer)
             else:
                 raise KeyError(item)
         else:
@@ -1183,6 +1204,7 @@ def group(store=None, overwrite=False, chunk_store=None,
         requires_init = overwrite or not contains_group(store)
     elif zarr_version == 3:
         requires_init = overwrite or not contains_group(store, path)
+
     if requires_init:
         init_group(store, overwrite=overwrite, chunk_store=chunk_store,
                    path=path)

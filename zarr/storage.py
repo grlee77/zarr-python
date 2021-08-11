@@ -298,8 +298,8 @@ def rmdir(store: Store, path: Path = None):
     """Remove all items under the given path. If `store` provides a `rmdir` method,
     this will be called, otherwise will fall back to implementation via the
     `Store` interface."""
+    path = normalize_storage_path(path)
     if getattr(store, '_store_version', 2) == 2:
-        path = normalize_storage_path(path)
         if hasattr(store, "rmdir") and store.is_erasable():
             # pass through
             store.rmdir(path)  # type: ignore
@@ -307,7 +307,26 @@ def rmdir(store: Store, path: Path = None):
             # slow version, delete one key at a time
             _rmdir_from_keys(store, path)
     else:
-        raise NotImplementedError("TODO?")
+        # TODO: check behavior for v3 and fix in the Store class, deferring to
+        #       those by default
+
+        # remove metadata folder
+        meta_dir = 'meta/root/' + path
+        _rmdir_from_keys(store, meta_dir)
+
+        # remove data folder
+        data_dir = 'data/root/' + path
+        _rmdir_from_keys(store, data_dir)
+
+        # remove metadata files
+        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
+        array_meta_file = meta_dir + '.array' + sfx
+        if array_meta_file in store:
+            store.erase(array_meta_file)
+        group_meta_file = meta_dir + '.group' + sfx
+        if group_meta_file in store:
+            store.erase(group_meta_file)
+
 
 def _rename_from_keys(store: Store, src_path: str, dst_path: str) -> None:
     # assume path already normalized
@@ -633,9 +652,9 @@ def init_array(
         _require_parent_group(path, store=store, chunk_store=chunk_store,
                               overwrite=overwrite)
 
-    if version == 3 and 'zarr.store' not in store:
-        # initialize with default zarr.store entry level metadata
-        store['zarr.store'] = store._metadata_class.encode_hierarchy_metadata(None)
+    if version == 3 and 'zarr.json' not in store:
+        # initialize with default zarr.json entry level metadata
+        store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
 
     _init_array_metadata(store, shape=shape, chunks=chunks, dtype=dtype,
                          compressor=compressor, fill_value=fill_value,
@@ -840,9 +859,9 @@ def init_group(
         _require_parent_group(path, store=store, chunk_store=chunk_store,
                               overwrite=overwrite)
 
-    if version == 3 and 'zarr.store' not in store:
-        # initialize with default zarr.store entry level metadata
-        store['zarr.store'] = store._metadata_class.encode_hierarchy_metadata(None)
+    if version == 3 and 'zarr.json' not in store:
+        # initialize with default zarr.json entry level metadata
+        store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
 
     # initialise metadata
     _init_group_metadata(store=store, overwrite=overwrite, path=path,
@@ -875,6 +894,7 @@ def _init_group_metadata(
             group_meta_key = _prefix_to_group_key(store, _path_to_prefix(path))
             array_meta_key = _prefix_to_array_key(store, _path_to_prefix(path))
             data_prefix = 'data/root/' + _path_to_prefix(path)
+            meta_prefix = 'meta/root/' + _path_to_prefix(path)
 
             # attempt to delete any pre-existing array in store
             if array_meta_key in store:
@@ -882,6 +902,7 @@ def _init_group_metadata(
             if group_meta_key in store:
                 store.erase(group_meta_key)
             store.erase_prefix(data_prefix)
+            store.erase_prefix(meta_prefix)
             if chunk_store is not None:
                 chunk_store.erase_prefix(data_prefix)
 

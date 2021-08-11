@@ -20,8 +20,14 @@ from typing import Union
 StoreLike = Union[Store, str, None]
 
 
+def _check_and_update_path(store: Store, path):
+    if getattr(store, '_store_version', 2) > 2 and not path:
+        raise ValueError("path must be provided for v3 stores")
+    return normalize_storage_path(path)
+
+
 # noinspection PyShadowingBuiltins
-def open(store: StoreLike = None, mode: str = "a", **kwargs):
+def open(store: StoreLike = None, mode: str = "a", *, zarr_version=2, path=None, **kwargs):
     """Convenience function to open a group or array using file-mode-like semantics.
 
     Parameters
@@ -33,6 +39,10 @@ def open(store: StoreLike = None, mode: str = "a", **kwargs):
         read/write (must exist); 'a' means read/write (create if doesn't
         exist); 'w' means create (overwrite if exists); 'w-' means create
         (fail if exists).
+    zarr_version : {2, 3}
+        The zarr protocol version to use.
+    path : str
+        The path within the store to open.
     **kwargs
         Additional parameters are passed through to :func:`zarr.creation.open_array` or
         :func:`zarr.hierarchy.open_group`.
@@ -74,15 +84,16 @@ def open(store: StoreLike = None, mode: str = "a", **kwargs):
 
     """
 
-    path = kwargs.get('path', None)
     # handle polymorphic store arg
     clobber = mode == 'w'
     # we pass storage options explicitly, since normalize_store_arg might construct
     # a store if the input is a fsspec-compatible URL
     _store: Store = normalize_store_arg(
-        store, clobber=clobber, storage_options=kwargs.pop("storage_options", {})
+        store, clobber=clobber, storage_options=kwargs.pop("storage_options", {}),
+        zarr_version=zarr_version,
     )
-    path = normalize_storage_path(path)
+    path = _check_and_update_path(_store, path)
+    kwargs['path'] = path
 
     if mode in {'w', 'w-', 'x'}:
         if 'shape' in kwargs:
@@ -105,7 +116,7 @@ def open(store: StoreLike = None, mode: str = "a", **kwargs):
             raise PathNotFoundError(path)
 
 
-def save_array(store: StoreLike, arr, **kwargs):
+def save_array(store: StoreLike, arr, *, zarr_version=2, path=None, **kwargs):
     """Convenience function to save a NumPy array to the local file system, following a
     similar API to the NumPy save() function.
 
@@ -115,6 +126,10 @@ def save_array(store: StoreLike, arr, **kwargs):
         Store or path to directory in file system or name of zip file.
     arr : ndarray
         NumPy array with data to save.
+    zarr_version : {2, 3}
+        The zarr protocol version to use when saving.
+    path : str
+        The path within the store where the array will be saved.
     kwargs
         Passed through to :func:`create`, e.g., compressor.
 
@@ -137,16 +152,18 @@ def save_array(store: StoreLike, arr, **kwargs):
 
     """
     may_need_closing = isinstance(store, str)
-    _store: Store = normalize_store_arg(store, clobber=True)
+    _store: Store = normalize_store_arg(store, clobber=True, zarr_version=zarr_version)
+    path = _check_and_update_path(_store, path)
     try:
-        _create_array(arr, store=_store, overwrite=True, **kwargs)
+        _create_array(arr, store=_store, overwrite=True, zarr_version=zarr_version, path=path,
+                      **kwargs)
     finally:
         if may_need_closing:
             # needed to ensure zip file records are written
             _store.close()
 
 
-def save_group(store: StoreLike, *args, **kwargs):
+def save_group(store: StoreLike, *args, zarr_version=2, path=None, **kwargs):
     """Convenience function to save several NumPy arrays to the local file system, following a
     similar API to the NumPy savez()/savez_compressed() functions.
 
@@ -156,6 +173,10 @@ def save_group(store: StoreLike, *args, **kwargs):
         Store or path to directory in file system or name of zip file.
     args : ndarray
         NumPy arrays with data to save.
+    zarr_version : {2, 3}
+        The zarr protocol version to use when saving.
+    path : str
+        Path within the store where the group will be saved.
     kwargs
         NumPy arrays with data to save.
 
@@ -208,21 +229,24 @@ def save_group(store: StoreLike, *args, **kwargs):
         raise ValueError('at least one array must be provided')
     # handle polymorphic store arg
     may_need_closing = isinstance(store, str)
-    _store: Store = normalize_store_arg(store, clobber=True)
+    _store: Store = normalize_store_arg(store, clobber=True, zarr_version=zarr_version)
+    path = _check_and_update_path(_store, path)
     try:
-        grp = _create_group(_store, overwrite=True)
+        grp = _create_group(_store, path=path, overwrite=True, zarr_version=zarr_version)
         for i, arr in enumerate(args):
             k = 'arr_{}'.format(i)
-            grp.create_dataset(k, data=arr, overwrite=True)
+            grp.create_dataset(k, data=arr, overwrite=True, zarr_version=zarr_version)
         for k, arr in kwargs.items():
-            grp.create_dataset(k, data=arr, overwrite=True)
+            if k == 'path':
+                continue
+            grp.create_dataset(k, data=arr, overwrite=True, zarr_version=zarr_version)
     finally:
         if may_need_closing:
             # needed to ensure zip file records are written
             _store.close()
 
 
-def save(store: StoreLike, *args, **kwargs):
+def save(store: StoreLike, *args, zarr_version=2, path=None, **kwargs):
     """Convenience function to save an array or group of arrays to the local file system.
 
     Parameters
@@ -231,6 +255,10 @@ def save(store: StoreLike, *args, **kwargs):
         Store or path to directory in file system or name of zip file.
     args : ndarray
         NumPy arrays with data to save.
+    zarr_version : {2, 3}
+        The zarr protocol version to use when saving.
+    path : str
+        The path within the group where the arrays will be saved.
     kwargs
         NumPy arrays with data to save.
 
@@ -297,9 +325,10 @@ def save(store: StoreLike, *args, **kwargs):
     if len(args) == 0 and len(kwargs) == 0:
         raise ValueError('at least one array must be provided')
     if len(args) == 1 and len(kwargs) == 0:
-        save_array(store, args[0])
+        save_array(store, args[0], zarr_version=zarr_version, path=path)
     else:
-        save_group(store, *args, **kwargs)
+        save_group(store, *args, zarr_version=zarr_version, path=path,
+                   **kwargs)
 
 
 class LazyLoader(Mapping):
@@ -332,7 +361,7 @@ class LazyLoader(Mapping):
         return r
 
 
-def load(store: StoreLike):
+def load(store: StoreLike, zarr_version=2, path=None):
     """Load data from an array or group into memory.
 
     Parameters
@@ -358,11 +387,12 @@ def load(store: StoreLike):
 
     """
     # handle polymorphic store arg
-    _store = normalize_store_arg(store)
-    if contains_array(_store, path=None):
-        return Array(store=_store, path=None)[...]
-    elif contains_group(_store, path=None):
-        grp = Group(store=_store, path=None)
+    _store = normalize_store_arg(store, zarr_version=zarr_version)
+    path = _check_and_update_path(_store, path)
+    if contains_array(_store, path=path):
+        return Array(store=_store, path=path)[...]
+    elif contains_group(_store, path=path):
+        grp = Group(store=_store, path=path)
         return LazyLoader(grp)
 
 
@@ -596,6 +626,15 @@ def copy_store(source, dest, source_path='', dest_path='', excludes=None,
     # setup counting variables
     n_copied = n_skipped = n_bytes_copied = 0
 
+    source_store_version = getattr(source, '_store_version', 2)
+    dest_store_version = getattr(dest, '_store_version', 2)
+    if source_store_version != dest_store_version:
+        raise ValueError("zarr stores must share the same protocol version")
+    if source_store_version > 2:
+        if not source_path or not dest_path:
+            raise ValueError("v3 stores require specifying a non-empty "
+                             "source_path and dest_path")
+
     # setup logging
     with _LogWriter(log) as log:
 
@@ -603,52 +642,63 @@ def copy_store(source, dest, source_path='', dest_path='', excludes=None,
         for source_key in sorted(source.keys()):
 
             # filter to keys under source path
-            if source_key.startswith(source_path):
-
-                # process excludes and includes
-                exclude = False
-                for prog in excludes:
-                    if prog.search(source_key):
-                        exclude = True
-                        break
-                if exclude:
-                    for prog in includes:
-                        if prog.search(source_key):
-                            exclude = False
-                            break
-                if exclude:
+            if source_store_version == 2:
+                if not source_key.startswith(source_path):
+                    continue
+            elif source_store_version == 3:
+                nskip = 10  # 'meta/root/' or 'data/root/'
+                if not source_key[10:].startswith(source_path):
                     continue
 
-                # map key to destination path
+            # process excludes and includes
+            exclude = False
+            for prog in excludes:
+                if prog.search(source_key):
+                    exclude = True
+                    break
+            if exclude:
+                for prog in includes:
+                    if prog.search(source_key):
+                        exclude = False
+                        break
+            if exclude:
+                continue
+
+            # map key to destination path
+            if source_store_version == 2:
                 key_suffix = source_key[len(source_path):]
                 dest_key = dest_path + key_suffix
+            elif source_store_version == 3:
+                # 10 is length of 'meta/root/' or 'data/root/'
+                key_suffix = source_key[10 + len(source_path):]
+                dest_key = source_key[:10] + dest_path + key_suffix
 
-                # create a descriptive label for this operation
-                descr = source_key
-                if dest_key != source_key:
-                    descr = descr + ' -> ' + dest_key
+            # create a descriptive label for this operation
+            descr = source_key
+            if dest_key != source_key:
+                descr = descr + ' -> ' + dest_key
 
-                # decide what to do
-                do_copy = True
-                if if_exists != 'replace':
-                    if dest_key in dest:
-                        if if_exists == 'raise':
-                            raise CopyError('key {!r} exists in destination'
-                                            .format(dest_key))
-                        elif if_exists == 'skip':
-                            do_copy = False
+            # decide what to do
+            do_copy = True
+            if if_exists != 'replace':
+                if dest_key in dest:
+                    if if_exists == 'raise':
+                        raise CopyError('key {!r} exists in destination'
+                                        .format(dest_key))
+                    elif if_exists == 'skip':
+                        do_copy = False
 
-                # take action
-                if do_copy:
-                    log('copy {}'.format(descr))
-                    if not dry_run:
-                        data = source[source_key]
-                        n_bytes_copied += buffer_size(data)
-                        dest[dest_key] = data
-                    n_copied += 1
-                else:
-                    log('skip {}'.format(descr))
-                    n_skipped += 1
+            # take action
+            if do_copy:
+                log('copy {}'.format(descr))
+                if not dry_run:
+                    data = source[source_key]
+                    n_bytes_copied += buffer_size(data)
+                    dest[dest_key] = data
+                n_copied += 1
+            else:
+                log('skip {}'.format(descr))
+                n_skipped += 1
 
         # log a final message with a summary of what happened
         _log_copy_summary(log, dry_run, n_copied, n_skipped, n_bytes_copied)
@@ -824,6 +874,7 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
             raise TypeError('source has no name, please provide the `name` '
                             'parameter to indicate a name to copy to')
 
+    zarr_version = getattr(dest, '_version', 2)
     if hasattr(source, 'shape'):
         # copy a dataset/array
 
@@ -855,6 +906,9 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
 
                 # setup creation keyword arguments
                 kws = create_kws.copy()
+
+                # if zarr_version > 2:
+                #     raise NotImplementedError("TODO")
 
                 # setup chunks option, preserve by default
                 kws.setdefault('chunks', source.chunks)
@@ -902,7 +956,8 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
                 n_bytes_copied += ds.size * ds.dtype.itemsize
 
                 # copy attributes
-                if not without_attrs:
+                if zarr_version == 2 and not without_attrs:
+                    # TODO: attributes for v3
                     ds.attrs.update(source.attrs)
 
             n_copied += 1
@@ -942,7 +997,8 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
                 grp = dest.require_group(name)
 
                 # copy attributes
-                if not without_attrs:
+                if zarr_version == 2 and not without_attrs:
+                    # TODO: attributes for v3
                     grp.attrs.update(source.attrs)
 
             else:
