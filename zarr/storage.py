@@ -628,14 +628,14 @@ def init_array(
     path = normalize_storage_path(path)
 
     # ensure parent group initialized
-    _store_version = getattr(store, "_store_version", 2)
-    if _store_version < 3:
+    version = getattr(store, "_store_version", 2)
+    if version < 3:
         _require_parent_group(path, store=store, chunk_store=chunk_store,
                               overwrite=overwrite)
-    # else:
-    #     if not path.startswith("meta/root/"):
-    #         # raise this error or automatically prepend?
-    #         raise ValueError("array metadata path must start with meta/root/")
+
+    if version == 3 and 'zarr.store' not in store:
+        # initialize with default zarr.store entry level metadata
+        store['zarr.store'] = store._metadata_class.encode_hierarchy_metadata(None)
 
     _init_array_metadata(store, shape=shape, chunks=chunks, dtype=dtype,
                          compressor=compressor, fill_value=fill_value,
@@ -834,14 +834,20 @@ def init_group(
     # normalize path
     path = normalize_storage_path(path)
 
-    if getattr(store, '_store_version', 2) < 3:
+    version = getattr(store, '_store_version', 2)
+    if version < 3:
         # ensure parent group initialized
         _require_parent_group(path, store=store, chunk_store=chunk_store,
                               overwrite=overwrite)
 
+    if version == 3 and 'zarr.store' not in store:
+        # initialize with default zarr.store entry level metadata
+        store['zarr.store'] = store._metadata_class.encode_hierarchy_metadata(None)
+
     # initialise metadata
     _init_group_metadata(store=store, overwrite=overwrite, path=path,
                          chunk_store=chunk_store)
+
 
 
 def _init_group_metadata(
@@ -894,7 +900,7 @@ def _init_group_metadata(
     # initialize metadata
     # N.B., currently no metadata properties are needed, however there may
     # be in future
-    if getattr(store, '_store_version', 2) == 3:
+    if version == 3:
         meta = {'attributes': {}}  # type: ignore
     else:
         meta = {}  # type: ignore
@@ -3607,11 +3613,11 @@ class MemoryStoreV3(MemoryStore, StoreV3):
             self.cls == other.cls
         )
 
-    def _get_parent(self, item: str):
-        raise NotImplementedError("TODO")
+    # def _get_parent(self, item: str):
+    #     raise NotImplementedError("TODO")
 
-    def _require_parent(self, item: str):
-        raise NotImplementedError("TODO")
+    # def _require_parent(self, item: str):
+    #     raise NotImplementedError("TODO")
 
     # modify listdir or set to NotImplementedError? (use list_dir instead?)
     # def listdir(self, path: Path = None) -> List[str]:

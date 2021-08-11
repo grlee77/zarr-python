@@ -404,7 +404,7 @@ class Group(MutableMapping):
                          synchronizer=self._synchronizer)
         elif self._version == 3:
             implicit_group = 'meta/root/' + path + '/'
-            print(f"implicit_group = {implicit_group}")
+            # print(f"implicit_group = {implicit_group}")
             if self._store.list_prefix(implicit_group):
                 raise NotImplementedError("TODO: handling for implicit groups")
             else:
@@ -1127,7 +1127,7 @@ def _normalize_store_arg(store, *, clobber=False, storage_options=None, mode=Non
 
 
 def group(store=None, overwrite=False, chunk_store=None,
-          cache_attrs=True, synchronizer=None, path=None):
+          cache_attrs=True, synchronizer=None, path=None, *, zarr_version=2):
     """Create a group.
 
     Parameters
@@ -1172,11 +1172,18 @@ def group(store=None, overwrite=False, chunk_store=None,
     """
 
     # handle polymorphic store arg
-    store = _normalize_store_arg(store)
+    store = _normalize_store_arg(store, zarr_version=zarr_version)
+    if zarr_version is None:
+        zarr_version = getattr(store, '_store_version', 2)
+    if zarr_version == 3 and path is None:
+        raise ValueError(f"path must be provided for a v{zarr_version} group")
     path = normalize_storage_path(path)
 
-    # require group
-    if overwrite or not contains_group(store):
+    if zarr_version == 2:
+        requires_init = overwrite or not contains_group(store)
+    elif zarr_version == 3:
+        requires_init = overwrite or not contains_group(store, path)
+    if requires_init:
         init_group(store, overwrite=overwrite, chunk_store=chunk_store,
                    path=path)
 

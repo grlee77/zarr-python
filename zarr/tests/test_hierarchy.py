@@ -22,6 +22,7 @@ from zarr.attrs import Attributes
 from zarr.core import Array
 from zarr.creation import open_array
 from zarr.hierarchy import Group, group, open_group
+from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (ABSStore, DBMStore, KVStore, DirectoryStore, FSStore,
                           LMDBStore, LRUStoreCache, MemoryStore,
                           NestedDirectoryStore, SQLiteStore, ZipStore,
@@ -485,7 +486,7 @@ class TestGroup(unittest.TestCase):
 
         # test __getitem__
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             assert isinstance(g1['foo'], Group)
             assert isinstance(g1['foo']['bar'], Group)
         assert isinstance(g1['foo/bar'], Group)
@@ -494,13 +495,13 @@ class TestGroup(unittest.TestCase):
         assert isinstance(g1['foo/baz'], Array)
         assert g2 == g1['foo/bar']
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             assert g1['foo']['bar'] == g1['foo/bar']
         assert d2 == g1['foo/baz']
         assert_array_equal(d2[:], g1['foo/baz'])
 
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             # these will be group/a, group/a/b, etc. in v3 since path='group'
             assert isinstance(g1['a'], Group)
             assert isinstance(g1['a']['b'], Group)
@@ -516,7 +517,7 @@ class TestGroup(unittest.TestCase):
         assert 'foo/bar' in g1
         assert 'foo/baz' in g1
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             assert 'bar' in g1['foo']
         assert 'a' in g1
         assert 'a/b' in g1
@@ -525,7 +526,7 @@ class TestGroup(unittest.TestCase):
         assert 'a/b/c/d' not in g1
         assert 'a/z' not in g1
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             assert 'quux' not in g1['foo']
 
         # test key errors
@@ -537,7 +538,7 @@ class TestGroup(unittest.TestCase):
         # test __len__
         assert 2 == len(g1)
         if g1._version == 2:
-            # TODO: hand implicit group for v3 spec
+            # TODO: handle implicit group for v3 spec
             assert 2 == len(g1['foo'])
         assert 0 == len(g1['foo/bar'])
         assert 1 == len(g1['a'])
