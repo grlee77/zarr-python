@@ -351,7 +351,6 @@ class Metadata3(Metadata2):
             compressor=meta["compressor"],
             fill_value=encode_fill_value(meta["fill_value"], dtype),
             chunk_memory_layout=meta["chunk_memory_layout"],
-            filters=meta["filters"],
             attributes=meta.get("attributes", {}),
         )
         if dimension_separator:

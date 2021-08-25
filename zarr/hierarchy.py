@@ -6,8 +6,7 @@ import numpy as np
 from zarr.attrs import Attributes
 from zarr.core import Array
 from zarr.creation import (array, create, empty, empty_like, full, full_like,
-                           normalize_store_arg, ones, ones_like, zeros,
-                           zeros_like)
+                           ones, ones_like, zeros, zeros_like)
 from zarr.errors import (
     ContainsArrayError,
     ContainsGroupError,
@@ -26,6 +25,7 @@ from zarr.storage import (
     group_meta_key,
     init_group,
     listdir,
+    normalize_store_arg,
     rename,
     rmdir,
     Store,
@@ -113,13 +113,25 @@ class Group(MutableMapping):
     """
 
     def __init__(self, store, path=None, read_only=False, chunk_store=None,
-                 cache_attrs=True, synchronizer=None):
+                 cache_attrs=True, synchronizer=None, zarr_version=None):
 
         if path:
             assert not path.startswith(("meta/", "data/"))
 
-        store = Store._ensure_store(store)
-        chunk_store = Store._ensure_store(chunk_store)
+        # store = Store._ensure_store(store)
+        # chunk_store = Store._ensure_store(chunk_store)
+        store = _normalize_store_arg(store, zarr_version=zarr_version)
+        if zarr_version is None:
+            zarr_version = getattr(store, '_store_version', 2)
+
+        if chunk_store is not None:
+            chunk_store = _normalize_store_arg(chunk_store,
+                                               zarr_version=zarr_version)
+            if not getattr(chunk_store, '_store_version', 2) == zarr_version:
+                raise ValueError(
+                    "zarr_version of store and chunk_store must match"
+                )
+
         self._store = store
         self._chunk_store = chunk_store
         self._path = normalize_storage_path(path)
@@ -131,7 +143,7 @@ class Group(MutableMapping):
             self._key_prefix = ''
         self._read_only = read_only
         self._synchronizer = synchronizer
-        self._version = getattr(store, "_store_version", 2)
+        self._version = zarr_version
 
         if self._version == 3:
             self._data_key_prefix = 'data/root/' + self._key_prefix
@@ -413,21 +425,24 @@ class Group(MutableMapping):
 
         """
         path = self._item_path(item)
+        # TODO: Don't have to pass zarr_version to Array or Group as long
+        #       as the store has already been initialized?
         if contains_array(self._store, path):
             return Array(self._store, read_only=self._read_only, path=path,
                          chunk_store=self._chunk_store,
-                         synchronizer=self._synchronizer, cache_attrs=self.attrs.cache)
+                         synchronizer=self._synchronizer, cache_attrs=self.attrs.cache,
+                         zarr_version=self._version)
         elif contains_group(self._store, path, explicit_only=True):
             return Group(self._store, read_only=self._read_only, path=path,
                          chunk_store=self._chunk_store, cache_attrs=self.attrs.cache,
-                         synchronizer=self._synchronizer)
+                         synchronizer=self._synchronizer, zarr_version=self._version)
         elif self._version == 3:
             implicit_group = 'meta/root/' + path + '/'
             # non-empty folder in the metadata path implies an implicit group
             if self._store.list_prefix(implicit_group):
                 return Group(self._store, read_only=self._read_only, path=path,
                              chunk_store=self._chunk_store, cache_attrs=self.attrs.cache,
-                             synchronizer=self._synchronizer)
+                             synchronizer=self._synchronizer, zarr_version=self._version)
             else:
                 raise KeyError(item)
         else:
@@ -503,7 +518,8 @@ class Group(MutableMapping):
         """
         for key in sorted(listdir(self._store, self._path)):
             path = self._key_prefix + key
-            if self._store._store_version == 3:
+            store_version = getattr(self._store, '_store_version', 2)
+            if store_version == 3:
                 _path = path[9:-1]
             else:
                 _path = path
@@ -514,7 +530,8 @@ class Group(MutableMapping):
                     read_only=self._read_only,
                     chunk_store=self._chunk_store,
                     cache_attrs=self.attrs.cache,
-                    synchronizer=self._synchronizer)
+                    synchronizer=self._synchronizer,
+                    zarr_version=self._version)
 
     def array_keys(self, recurse=False):
         """Return an iterator over member names for arrays only.
@@ -793,7 +810,7 @@ class Group(MutableMapping):
 
         return Group(self._store, path=path, read_only=self._read_only,
                      chunk_store=self._chunk_store, cache_attrs=self.attrs.cache,
-                     synchronizer=self._synchronizer)
+                     synchronizer=self._synchronizer, zarr_version=self._version)
 
     def create_groups(self, *names, **kwargs):
         """Convenience method to create multiple groups in a single call."""
@@ -837,7 +854,7 @@ class Group(MutableMapping):
 
         return Group(self._store, path=path, read_only=self._read_only,
                      chunk_store=self._chunk_store, cache_attrs=self.attrs.cache,
-                     synchronizer=self._synchronizer)
+                     synchronizer=self._synchronizer, zarr_version=self._version)
 
     def require_groups(self, *names):
         """Convenience method to require multiple groups in a single call."""
@@ -1144,7 +1161,8 @@ def _normalize_store_arg(store, *, clobber=False, storage_options=None, mode=Non
     if store is None:
         return MemoryStore() if zarr_version == 2 else MemoryStoreV3()
     return normalize_store_arg(store, clobber=clobber,
-                               storage_options=storage_options, mode=mode)
+                               storage_options=storage_options, mode=mode,
+                               zarr_version=zarr_version)
 
 
 def group(store=None, overwrite=False, chunk_store=None,
@@ -1210,7 +1228,8 @@ def group(store=None, overwrite=False, chunk_store=None,
                    path=path)
 
     return Group(store, read_only=False, chunk_store=chunk_store,
-                 cache_attrs=cache_attrs, synchronizer=synchronizer, path=path)
+                 cache_attrs=cache_attrs, synchronizer=synchronizer, path=path,
+                 zarr_version=zarr_version)
 
 
 def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=None,
@@ -1268,8 +1287,14 @@ def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=N
     if chunk_store is not None:
         chunk_store = _normalize_store_arg(chunk_store, clobber=clobber,
                                            storage_options=storage_options)
-    if store._store_version == 3 and path is None:
-        path = 'group'
+        if not getattr(chunk_store, '_store_version', 2) == zarr_version:
+            raise ValueError(
+                "zarr_version of store and chunk_store must match"
+            )
+
+    store_version = getattr(store, '_store_version', 2)
+    if store_version == 3 and path is None:
+        path = 'group'  # TODO: raise ValueError?
 
     path = normalize_storage_path(path)
 
@@ -1279,7 +1304,8 @@ def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=N
         if contains_array(store, path=path):
             raise ContainsArrayError(path)
         elif not contains_group(store, path=path):
-            raise GroupNotFoundError(path)
+            if path:
+                raise GroupNotFoundError(path)
 
     elif mode == 'w':
         init_group(store, overwrite=True, path=path, chunk_store=chunk_store)
@@ -1302,4 +1328,5 @@ def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=N
     read_only = mode == 'r'
 
     return Group(store, read_only=read_only, cache_attrs=cache_attrs,
-                 synchronizer=synchronizer, path=path, chunk_store=chunk_store)
+                 synchronizer=synchronizer, path=path, chunk_store=chunk_store,
+                 zarr_version=zarr_version)

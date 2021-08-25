@@ -37,6 +37,7 @@ from zarr.storage import (
     _prefix_to_array_key,
     getsize,
     listdir,
+    normalize_store_arg,
     Store,
 )
 from zarr.util import (
@@ -147,12 +148,22 @@ class Array:
         cache_metadata=True,
         cache_attrs=True,
         partial_decompress=False,
+        zarr_version=None,
     ):
         # N.B., expect at this point store is fully initialized with all
         # configuration metadata fully specified and normalized
 
-        store = Store._ensure_store(store)
-        chunk_store = Store._ensure_store(chunk_store)
+        store = normalize_store_arg(store, zarr_version=zarr_version)
+        if zarr_version is None:
+            zarr_version = getattr(store, '_store_version', 2)
+
+        if chunk_store is not None:
+            chunk_store = normalize_store_arg(chunk_store,
+                                              zarr_version=zarr_version)
+            if not getattr(chunk_store, '_store_version', 2) == zarr_version:
+                raise ValueError(
+                    "zarr_version of store and chunk_store must match"
+                )
 
         self._store = store
         self._chunk_store = chunk_store
@@ -166,10 +177,7 @@ class Array:
         self._cache_metadata = cache_metadata
         self._is_view = False
         self._partial_decompress = partial_decompress
-        if self._chunk_store is not None:
-            self._version = getattr(self._chunk_store, '_store_version', 2)
-        else:
-            self._version = getattr(self._store, '_store_version', 2)
+        self._version = zarr_version
 
         if self._version == 3:
             self._data_key_prefix = 'data/root/' + self._key_prefix
@@ -2524,7 +2532,7 @@ class Array:
         if synchronizer is None:
             synchronizer = self._synchronizer
         a = Array(store=store, path=path, chunk_store=chunk_store, read_only=read_only,
-                  synchronizer=synchronizer, cache_metadata=True)
+                  synchronizer=synchronizer, cache_metadata=True, zarr_version=self._version)
         a._is_view = True
 
         # allow override of some properties

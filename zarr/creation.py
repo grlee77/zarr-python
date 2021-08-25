@@ -13,8 +13,8 @@ from zarr.errors import (
 from zarr.n5 import N5Store
 from zarr.storage import (DirectoryStore, ZipStore, KVStore, contains_array,
                           contains_group, default_compressor, init_array,
-                          normalize_storage_path, FSStore, Store,
-                          StoreV3, KVStoreV3, DirectoryStoreV3)
+                          normalize_storage_path, normalize_store_arg,
+                          FSStore, Store, StoreV3, KVStoreV3, DirectoryStoreV3)
 from zarr.util import normalize_dimension_separator
 
 
@@ -143,8 +143,9 @@ def create(shape, chunks=True, dtype=None, compressor='default',
                 f"{store._dimension_separator}")
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
-    if store._store_version == 3 and path is None:
-        path = 'array'
+    store_version = getattr(store, 'store_version', 2)
+    if store_version == 3 and path is None:
+        path = 'array'  # TODO: raise ValueError instead?
 
     # initialize array metadata
     init_array(store, shape=shape, chunks=chunks, dtype=dtype, compressor=compressor,
@@ -157,61 +158,6 @@ def create(shape, chunks=True, dtype=None, compressor='default',
               cache_metadata=cache_metadata, cache_attrs=cache_attrs, read_only=read_only)
 
     return z
-
-
-def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
-                        *, zarr_version=None) -> Store:
-    if zarr_version is None:
-        # default to v2 store for backward compatibility
-        zarr_version = getattr(store, '_store_version', 2)
-    if zarr_version not in [2, 3]:
-        raise ValueError("zarr_version must be 2 or 3")
-    if store is None:
-        if zarr_version == 2:
-            store = KVStore(dict())
-        else:
-            store = KVStoreV3(dict())
-            # add default zarr.json metadata
-            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
-        return store
-    elif isinstance(store, str):
-        mode = mode if clobber else "r"
-        if zarr_version == 2:
-            if "://" in store or "::" in store:
-                return FSStore(store, mode=mode, **(storage_options or {}))
-            elif storage_options:
-                raise ValueError("storage_options passed with non-fsspec path")
-            if store.endswith('.zip'):
-                return ZipStore(store, mode=mode)
-            elif store.endswith('.n5'):
-                return N5Store(store)
-            else:
-                return DirectoryStore(store)
-        elif zarr_version == 3:
-            if "://" in store or "::" in store:
-                store = FSStoreV3(store, mode=mode, **(storage_options or {}))
-            elif storage_options:
-                store = ValueError("storage_options passed with non-fsspec path")
-            if store.endswith('.zip'):
-                store = ZipStoreV3(store, mode=mode)
-            elif store.endswith('.n5'):
-                raise NotImplementedError("N5Store not yet implemented for V3")
-                # return N5StoreV3(store)
-            else:
-                store = DirectoryStoreV3(store)
-            # add default zarr.json metadata
-            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
-            return store
-    elif zarr_version == 2:
-        if not isinstance(store, Store) and isinstance(store, MutableMapping):
-            store = KVStore(store)
-    elif zarr_version == 3:
-        if not isinstance(store, StoreV3) and isinstance(store, MutableMapping):
-            store = KVStoreV3(store)
-        if 'zarr.json' not in store:
-            # add default zarr.json metadata
-            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
-    return store
 
 
 def _kwargs_compat(compressor, fill_value, kwargs):
@@ -551,8 +497,9 @@ def open_array(
                                           storage_options=storage_options,
                                           zarr_version=zarr_version)
 
-    if store._store_version == 3 and path is None:
-        path = 'array'
+    store_version = getattr(store, '_store_version', 2)
+    if store_version == 3 and path is None:
+        path = 'array'  # TODO: raise ValueError instead?
     path = normalize_storage_path(path)
 
     # API compatibility with h5py

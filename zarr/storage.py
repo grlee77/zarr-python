@@ -210,7 +210,7 @@ def _prefix_to_array_key(store: Store, prefix: str) -> str:
             sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
             key = "meta/root/" + prefix.rstrip("/") + ".array" + sfx
         else:
-            raise ValueError("prefix must be supplied to initialize a zarr v3 group")
+            raise ValueError("prefix must be supplied to initialize a zarr v3 array")
     else:
         key = prefix + array_meta_key
     return key
@@ -255,7 +255,8 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_group_key(store, prefix)
-    if store._store_version == 2 or explicit_only:
+    store_version = getattr(store, '_store_version', 2)
+    if store_version == 2 or explicit_only:
         return key in store
     else:
         if key in store:
@@ -772,6 +773,8 @@ def _init_array_metadata(
 
     # obtain filters config
     if filters:
+        # filters was removed from the metadata in v3
+        # raise error here if it is found?
         filters_config = [f.get_config() for f in filters]
     else:
         filters_config = []
@@ -799,10 +802,11 @@ def _init_array_metadata(
     # initialize metadata
     # TODO: don't store redundant dimension_separator for v3?
     meta = dict(shape=shape, compressor=compressor_config,
-                fill_value=fill_value, filters=filters_config,
+                fill_value=fill_value,
                 dimension_separator=dimension_separator)
     if getattr(store, '_store_version', 2) < 3:
-        meta.update(dict(chunks=chunks, dtype=dtype, order=order))
+        meta.update(dict(chunks=chunks, dtype=dtype, order=order,
+                         filters=filters_config))
     else:
         if dimension_separator is None:
             dimension_separator = "/"
@@ -3791,3 +3795,67 @@ class ABSStoreV3(ABSStore, StoreV3):
         )
 
 ABSStoreV3.__doc__ = ABSStore.__doc__
+
+
+def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
+                        *, zarr_version=None) -> Store:
+    if zarr_version is None:
+        # default to v2 store for backward compatibility
+        zarr_version = getattr(store, '_store_version', 2)
+    if zarr_version not in [2, 3]:
+        raise ValueError("zarr_version must be 2 or 3")
+    if store is None:
+        if zarr_version == 2:
+            store = KVStore(dict())
+        else:
+            store = KVStoreV3(dict())
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
+        return store
+    elif isinstance(store, str):
+        mode = mode if clobber else "r"
+        if zarr_version == 2:
+            if "://" in store or "::" in store:
+                return FSStore(store, mode=mode, **(storage_options or {}))
+            elif storage_options:
+                raise ValueError("storage_options passed with non-fsspec path")
+            if store.endswith('.zip'):
+                return ZipStore(store, mode=mode)
+            elif store.endswith('.n5'):
+                return N5Store(store)
+            else:
+                return DirectoryStore(store)
+        elif zarr_version == 3:
+            if "://" in store or "::" in store:
+                store = FSStoreV3(store, mode=mode, **(storage_options or {}))
+            elif storage_options:
+                store = ValueError("storage_options passed with non-fsspec path")
+            if store.endswith('.zip'):
+                store = ZipStoreV3(store, mode=mode)
+            elif store.endswith('.n5'):
+                raise NotImplementedError("N5Store not yet implemented for V3")
+                # return N5StoreV3(store)
+            else:
+                store = DirectoryStoreV3(store)
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
+            return store
+    elif zarr_version == 2:
+        store = Store._ensure_store(store)
+        if getattr(store, '_store_version', 2) != 2:
+            raise ValueError(
+                "provided store does not match the specified zarr version.")
+        # if not isinstance(store, Store) and isinstance(store, MutableMapping):
+        #     store = KVStore(store)
+    elif zarr_version == 3:
+        store = StoreV3._ensure_store(store)
+        if getattr(store, '_store_version', 2) != 3:
+            raise ValueError(
+                "provided store does not match the specified zarr version.")
+        # if not isinstance(store, StoreV3) and isinstance(store, MutableMapping):
+        #     store = KVStoreV3(store)
+        if 'zarr.json' not in store:
+            # add default zarr.json metadata
+            store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
+    return store
+

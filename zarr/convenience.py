@@ -6,13 +6,14 @@ from collections.abc import Mapping
 
 from zarr.core import Array
 from zarr.creation import array as _create_array
-from zarr.creation import normalize_store_arg, open_array
+from zarr.creation import open_array
 from zarr.errors import CopyError, PathNotFoundError
 from zarr.hierarchy import Group
 from zarr.hierarchy import group as _create_group
 from zarr.hierarchy import open_group
 from zarr.meta import json_dumps, json_loads
-from zarr.storage import contains_array, contains_group, Store
+from zarr.storage import contains_array, contains_group, normalize_store_arg
+from zarr.storage import Store
 from zarr.util import TreeViewer, buffer_size, normalize_storage_path
 
 from typing import Union
@@ -1115,6 +1116,8 @@ def copy_all(source, dest, shallow=False, without_attrs=False, log=None,
     # setup counting variables
     n_copied = n_skipped = n_bytes_copied = 0
 
+    zarr_version = getattr(source, '_version', 2)
+
     # setup logging
     with _LogWriter(log) as log:
 
@@ -1126,7 +1129,9 @@ def copy_all(source, dest, shallow=False, without_attrs=False, log=None,
             n_copied += c
             n_skipped += s
             n_bytes_copied += b
-        dest.attrs.update(**source.attrs)
+        if zarr_version == 2:
+            # TODO: attrs for v3?
+            dest.attrs.update(**source.attrs)
 
         # log a final message with a summary of what happened
         _log_copy_summary(log, dry_run, n_copied, n_skipped, n_bytes_copied)

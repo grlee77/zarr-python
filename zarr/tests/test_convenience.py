@@ -26,8 +26,9 @@ from zarr.errors import CopyError
 from zarr.hierarchy import Group, group
 from zarr.storage import (
     ConsolidatedMetadataStore,
-    MemoryStore,
     KVStoreV3,
+    MemoryStore,
+    MemoryStoreV3,
     atexit_rmtree,
     getsize,
 )
@@ -528,19 +529,40 @@ def test_copy_all():
         dry_run=False,
     )
 
+    assert 'subgroup' in destination_group
     assert destination_group.attrs["info"] == "group attrs"
     assert destination_group.subgroup.attrs["info"] == "sub attrs"
 
 
-class TestCopyV3:
+def test_copy_all_v3():
+    """
+    https://github.com/zarr-developers/zarr-python/issues/269
 
+    copy_all used to not copy attributes as `.keys()` does not return hidden `.zattrs`.
+
+    """
+    original_group = zarr.group(store=MemoryStoreV3(), path='group1', overwrite=True)
+    original_subgroup = original_group.create_group("subgroup")
+
+    destination_group = zarr.group(store=MemoryStoreV3(), path='group2', overwrite=True)
+
+    # copy from memory to directory store
+    copy_all(
+        original_group,
+        destination_group,
+        dry_run=False,
+    )
+    assert original_group.path + '/subgroup' in destination_group
+
+
+class TestCopy:
     @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
     def source(self, request, tmpdir):
         def prep_source(source):
             foo = source.create_group('foo')
-            # foo.attrs['experiment'] = 'weird science'
+            foo.attrs['experiment'] = 'weird science'
             baz = foo.create_dataset('bar/baz', data=np.arange(100), chunks=(50,))
-            # baz.attrs['units'] = 'metres'
+            baz.attrs['units'] = 'metres'
             if request.param:
                 extra_kws = dict(compression='gzip', compression_opts=3, fillvalue=84,
                                  shuffle=True, fletcher32=True)
@@ -556,7 +578,7 @@ class TestCopyV3:
             with h5py.File(str(fn), mode='w') as h5f:
                 yield prep_source(h5f)
         else:
-            yield prep_source(group(path='group1', zarr_version=3))
+            yield prep_source(group())
 
     @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
     def dest(self, request, tmpdir):
@@ -566,9 +588,8 @@ class TestCopyV3:
             with h5py.File(str(fn), mode='w') as h5f:
                 yield h5f
         else:
-            yield group(path='group2', zarr_version=3)
+            yield group()
 
-    #same
     def test_copy_array(self, source, dest):
         # copy array with default options
         copy(source['foo/bar/baz'], dest)
@@ -576,37 +597,34 @@ class TestCopyV3:
         copy(source['spam'], dest)
         check_copied_array(source['spam'], dest['spam'])
 
-    #same
     def test_copy_bad_dest(self, source, dest):
         # try to copy to an array, dest must be a group
         dest = dest.create_dataset('eggs', shape=(100,))
         with pytest.raises(ValueError):
             copy(source['foo/bar/baz'], dest)
 
-    #same
     def test_copy_array_name(self, source, dest):
         # copy array with name
         copy(source['foo/bar/baz'], dest, name='qux')
         assert 'baz' not in dest
         check_copied_array(source['foo/bar/baz'], dest['qux'])
 
-    # def test_copy_array_create_options(self, source, dest):
-    #     dest_h5py = dest.__module__.startswith('h5py.')
+    def test_copy_array_create_options(self, source, dest):
+        dest_h5py = dest.__module__.startswith('h5py.')
 
-    #     # copy array, provide creation options
-    #     compressor = Zlib(9)
-    #     create_kws = dict(chunks=(10,))
-    #     if dest_h5py:
-    #         create_kws.update(compression='gzip', compression_opts=9,
-    #                           shuffle=True, fletcher32=True, fillvalue=42)
-    #     else:
-    #         create_kws.update(compressor=compressor, fill_value=42, order='F',
-    #                           filters=[Adler32()])
-    #     copy(source['foo/bar/baz'], dest, without_attrs=True, **create_kws)
-    #     check_copied_array(source['foo/bar/baz'], dest['baz'],
-    #                        without_attrs=True, expect_props=create_kws)
+        # copy array, provide creation options
+        compressor = Zlib(9)
+        create_kws = dict(chunks=(10,))
+        if dest_h5py:
+            create_kws.update(compression='gzip', compression_opts=9,
+                              shuffle=True, fletcher32=True, fillvalue=42)
+        else:
+            create_kws.update(compressor=compressor, fill_value=42, order='F',
+                              filters=[Adler32()])
+        copy(source['foo/bar/baz'], dest, without_attrs=True, **create_kws)
+        check_copied_array(source['foo/bar/baz'], dest['baz'],
+                           without_attrs=True, expect_props=create_kws)
 
-    # same
     def test_copy_array_exists_array(self, source, dest):
         # copy array, dest array in the way
         dest.create_dataset('baz', shape=(10,))
@@ -632,7 +650,6 @@ class TestCopyV3:
         with pytest.raises(ValueError):
             copy(source['foo/bar/baz'], dest, if_exists='foobar')
 
-    # same
     def test_copy_array_exists_group(self, source, dest):
         # copy array, dest group in the way
         dest.create_group('baz')
@@ -653,7 +670,6 @@ class TestCopyV3:
         copy(source['foo/bar/baz'], dest, if_exists='replace')
         check_copied_array(source['foo/bar/baz'], dest['baz'])
 
-    # same
     def test_copy_array_skip_initialized(self, source, dest):
         dest_h5py = dest.__module__.startswith('h5py.')
 
@@ -676,48 +692,36 @@ class TestCopyV3:
             assert_array_equal(np.arange(100, 200), dest['baz'][:])
             assert not np.all(source['foo/bar/baz'][:] == dest['baz'][:])
 
-    # same
     def test_copy_group(self, source, dest):
         # copy group, default options
         copy(source['foo'], dest)
         check_copied_group(source['foo'], dest['foo'])
 
-    # different
     def test_copy_group_no_name(self, source, dest):
-
-        if source.__module__.startswith('h5py'):
-            with pytest.raises(TypeError):
-                copy(source, dest)
-
-        else:
-            # name will be inferred from source.name
+        with pytest.raises(TypeError):
+            # need a name if copy root
             copy(source, dest)
-            check_copied_group(source, dest[source.name.lstrip('/')])
 
         copy(source, dest, name='root')
         check_copied_group(source, dest['root'])
 
-    # same
     def test_copy_group_options(self, source, dest):
         # copy group, non-default options
         copy(source['foo'], dest, name='qux', without_attrs=True)
         assert 'foo' not in dest
         check_copied_group(source['foo'], dest['qux'], without_attrs=True)
 
-    # same
     def test_copy_group_shallow(self, source, dest):
         # copy group, shallow
         copy(source, dest, name='eggs', shallow=True)
         check_copied_group(source, dest['eggs'], shallow=True)
 
-    # same
     def test_copy_group_exists_group(self, source, dest):
         # copy group, dest groups exist
         dest.create_group('foo/bar')
         copy(source['foo'], dest)
         check_copied_group(source['foo'], dest['foo'])
 
-    # same
     def test_copy_group_exists_array(self, source, dest):
         # copy group, dest array in the way
         dest.create_dataset('foo/bar', shape=(10,))
@@ -738,7 +742,6 @@ class TestCopyV3:
         copy(source['foo'], dest, if_exists='replace')
         check_copied_group(source['foo'], dest['foo'])
 
-    # same
     def test_copy_group_dry_run(self, source, dest):
         # dry run, empty destination
         n_copied, n_skipped, n_bytes_copied = \
@@ -779,7 +782,6 @@ class TestCopyV3:
         assert 0 == n_bytes_copied
         assert_array_equal(baz, dest['foo/bar/baz'])
 
-    # same
     def test_logging(self, source, dest, tmpdir):
         # callable log
         copy(source['foo'], dest, dry_run=True, log=print)
@@ -796,38 +798,67 @@ class TestCopyV3:
         with pytest.raises(TypeError):
             copy(source['foo'], dest, dry_run=True, log=True)
 
-# class TestCopy:
-#     @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
-#     def source(self, request, tmpdir):
-#         def prep_source(source):
-#             foo = source.create_group('foo')
-#             foo.attrs['experiment'] = 'weird science'
-#             baz = foo.create_dataset('bar/baz', data=np.arange(100), chunks=(50,))
-#             baz.attrs['units'] = 'metres'
-#             if request.param:
-#                 extra_kws = dict(compression='gzip', compression_opts=3, fillvalue=84,
-#                                  shuffle=True, fletcher32=True)
-#             else:
-#                 extra_kws = dict(compressor=Zlib(3), order='F', fill_value=42, filters=[Adler32()])
-#             source.create_dataset('spam', data=np.arange(100, 200).reshape(20, 5),
-#                                   chunks=(10, 2), dtype='i2', **extra_kws)
-#             return source
 
-#         if request.param:
-#             h5py = pytest.importorskip('h5py')
-#             fn = tmpdir.join('source.h5')
-#             with h5py.File(str(fn), mode='w') as h5f:
-#                 yield prep_source(h5f)
-#         else:
-#             yield prep_source(group())
+class TestCopyV3(TestCopy):
 
-#     @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
-#     def dest(self, request, tmpdir):
-#         if request.param:
-#             h5py = pytest.importorskip('h5py')
-#             fn = tmpdir.join('dest.h5')
-#             with h5py.File(str(fn), mode='w') as h5f:
-#                 yield h5f
-#         else:
-#             yield group()
+    @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
+    def source(self, request, tmpdir):
+        def prep_source(source):
+            foo = source.create_group('foo')
+            # foo.attrs['experiment'] = 'weird science'
+            baz = foo.create_dataset('bar/baz', data=np.arange(100), chunks=(50,))
+            # baz.attrs['units'] = 'metres'
+            if request.param:
+                extra_kws = dict(compression='gzip', compression_opts=3, fillvalue=84,
+                                 shuffle=True, fletcher32=True)
+            else:
+                extra_kws = dict(compressor=Zlib(3), order='F', fill_value=42, filters=[Adler32()])
+            source.create_dataset('spam', data=np.arange(100, 200).reshape(20, 5),
+                                  chunks=(10, 2), dtype='i2', **extra_kws)
+            return source
 
+        if request.param:
+            h5py = pytest.importorskip('h5py')
+            fn = tmpdir.join('source.h5')
+            with h5py.File(str(fn), mode='w') as h5f:
+                yield prep_source(h5f)
+        else:
+            yield prep_source(group(path='group1', zarr_version=3))
+
+    @pytest.fixture(params=[False, True], ids=['zarr', 'hdf5'])
+    def dest(self, request, tmpdir):
+        if request.param:
+            h5py = pytest.importorskip('h5py')
+            fn = tmpdir.join('dest.h5')
+            with h5py.File(str(fn), mode='w') as h5f:
+                yield h5f
+        else:
+            yield group(path='group2', zarr_version=3)
+
+    def test_copy_array_create_options(self, source, dest):
+        dest_h5py = dest.__module__.startswith('h5py.')
+
+        # copy array, provide creation options
+        compressor = Zlib(9)
+        create_kws = dict(chunks=(10,))
+        if dest_h5py:
+            create_kws.update(compression='gzip', compression_opts=9,
+                              shuffle=True, fletcher32=True, fillvalue=42)
+        else:
+            # v3 case has no filters argument in zarr create_kws
+            create_kws.update(compressor=compressor, fill_value=42, order='F')
+        copy(source['foo/bar/baz'], dest, without_attrs=True, **create_kws)
+        check_copied_array(source['foo/bar/baz'], dest['baz'],
+                           without_attrs=True, expect_props=create_kws)
+
+    def test_copy_group_no_name(self, source, dest):
+        if source.__module__.startswith('h5py'):
+            with pytest.raises(TypeError):
+                copy(source, dest)
+        else:
+            # name will be inferred from source.name
+            copy(source, dest)
+            check_copied_group(source, dest[source.name.lstrip('/')])
+
+        copy(source, dest, name='root')
+        check_copied_group(source, dest['root'])
