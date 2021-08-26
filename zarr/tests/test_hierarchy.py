@@ -1390,6 +1390,7 @@ class TestGroupV3WithChunkStore(TestGroupWithChunkStore, TestGroupV3):
         actual = sorted(store.keys())
         assert expect == actual
         expect = ['data/root/' + path + '/foo/c' + str(i) for i in range(10)]
+        expect += ['zarr.json']
         actual = sorted(chunk_store.keys())
         assert expect == actual
 

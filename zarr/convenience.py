@@ -1,6 +1,7 @@
 """Convenience functions for storing and loading data."""
 import io
 import itertools
+import os
 import re
 from collections.abc import Mapping
 
@@ -117,6 +118,10 @@ def open(store: StoreLike = None, mode: str = "a", *, zarr_version=2, path=None,
             raise PathNotFoundError(path)
 
 
+def _might_close(path):
+    return isinstance(path, (str, os.PathLike))
+
+
 def save_array(store: StoreLike, arr, *, zarr_version=2, path=None, **kwargs):
     """Convenience function to save a NumPy array to the local file system, following a
     similar API to the NumPy save() function.
@@ -152,7 +157,7 @@ def save_array(store: StoreLike, arr, *, zarr_version=2, path=None, **kwargs):
         array([   0,    1,    2, ..., 9997, 9998, 9999])
 
     """
-    may_need_closing = isinstance(store, str)
+    may_need_closing = _might_close(store)
     _store: Store = normalize_store_arg(store, clobber=True, zarr_version=zarr_version)
     path = _check_and_update_path(_store, path)
     try:
@@ -229,7 +234,7 @@ def save_group(store: StoreLike, *args, zarr_version=2, path=None, **kwargs):
     if len(args) == 0 and len(kwargs) == 0:
         raise ValueError('at least one array must be provided')
     # handle polymorphic store arg
-    may_need_closing = isinstance(store, str)
+    may_need_closing = _might_close(store)
     _store: Store = normalize_store_arg(store, clobber=True, zarr_version=zarr_version)
     path = _check_and_update_path(_store, path)
     try:
@@ -238,8 +243,6 @@ def save_group(store: StoreLike, *args, zarr_version=2, path=None, **kwargs):
             k = 'arr_{}'.format(i)
             grp.create_dataset(k, data=arr, overwrite=True, zarr_version=zarr_version)
         for k, arr in kwargs.items():
-            if k == 'path':
-                continue
             grp.create_dataset(k, data=arr, overwrite=True, zarr_version=zarr_version)
     finally:
         if may_need_closing:

@@ -1166,7 +1166,7 @@ def _normalize_store_arg(store, *, clobber=False, storage_options=None, mode=Non
 
 
 def group(store=None, overwrite=False, chunk_store=None,
-          cache_attrs=True, synchronizer=None, path=None, *, zarr_version=2):
+          cache_attrs=True, synchronizer=None, path=None, *, zarr_version=None):
     """Create a group.
 
     Parameters
@@ -1284,6 +1284,8 @@ def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=N
     store = _normalize_store_arg(
         store, clobber=clobber, storage_options=storage_options, mode=mode,
         zarr_version=zarr_version)
+    if zarr_version is None:
+        zarr_version = getattr(store, '_store_version', 2)
     if chunk_store is not None:
         chunk_store = _normalize_store_arg(chunk_store, clobber=clobber,
                                            storage_options=storage_options)
@@ -1294,7 +1296,7 @@ def open_group(store=None, mode='a', cache_attrs=True, synchronizer=None, path=N
 
     store_version = getattr(store, '_store_version', 2)
     if store_version == 3 and path is None:
-        path = 'group'  # TODO: raise ValueError?
+        raise ValueError("path must be supplied to initialize a zarr v3 group")
 
     path = normalize_storage_path(path)
 

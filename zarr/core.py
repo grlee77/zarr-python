@@ -2034,7 +2034,7 @@ class Array:
             # https://zarr-specs.readthedocs.io/en/core-protocol-v3.0-dev/protocol/core/v3.0.html#regular-grids
             return "data/root/" + self._key_prefix + "c" + self._dimension_separator.join(map(str, chunk_coords))
         else:
-            return self._key_prefix + '.'.join(map(str, chunk_coords))
+            return self._key_prefix + self._dimension_separator.join(map(str, chunk_coords))
 
     def _decode_chunk(self, cdata, start=None, nitems=None, expected_shape=None):
         # decompress

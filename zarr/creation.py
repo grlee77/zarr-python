@@ -1,3 +1,4 @@
+import os
 from warnings import warn
 
 import numpy as np
@@ -10,7 +11,6 @@ from zarr.errors import (
     ContainsArrayError,
     ContainsGroupError,
 )
-from zarr.n5 import N5Store
 from zarr.storage import (DirectoryStore, ZipStore, KVStore, contains_array,
                           contains_group, default_compressor, init_array,
                           normalize_storage_path, normalize_store_arg,
@@ -143,9 +143,9 @@ def create(shape, chunks=True, dtype=None, compressor='default',
                 f"{store._dimension_separator}")
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
-    store_version = getattr(store, 'store_version', 2)
+    store_version = getattr(store, '_store_version', 2)
     if store_version == 3 and path is None:
-        path = 'array'  # TODO: raise ValueError instead?
+        raise ValueError("path must be supplied to initialize a zarr v3 array")
 
     # initialize array metadata
     init_array(store, shape=shape, chunks=chunks, dtype=dtype, compressor=compressor,

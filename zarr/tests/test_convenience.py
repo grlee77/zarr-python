@@ -35,10 +35,10 @@ from zarr.storage import (
 
 
 @pytest.mark.parametrize("zarr_version", [2, 3])
-def test_open_array(zarr_version):
-
+def test_open_array(path_type, zarr_version):
     store = tempfile.mkdtemp()
     atexit.register(atexit_rmtree, store)
+    store = path_type(store)
 
     if zarr_version == 2:
         kwargs = dict(zarr_version=zarr_version)
@@ -72,10 +72,11 @@ def test_open_array(zarr_version):
 
 
 @pytest.mark.parametrize("zarr_version", [2, 3])
-def test_open_group(zarr_version):
+def test_open_group(path_type, zarr_version):
 
     store = tempfile.mkdtemp()
     atexit.register(atexit_rmtree, store)
+    store = path_type(store)
 
     if zarr_version == 2:
         kwargs = dict(zarr_version=zarr_version)

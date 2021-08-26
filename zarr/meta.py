@@ -47,10 +47,7 @@ class Metadata2:
             meta = s
         else:
             # assume metadata needs to be parsed as JSON
-            try:
-                meta = json_loads(s)
-            except:
-                1 / 0
+            meta = json_loads(s)
         return meta
 
     @classmethod

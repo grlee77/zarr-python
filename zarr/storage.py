@@ -56,17 +56,27 @@ from zarr.util import (buffer_size, json_loads, nolock, normalize_chunks,
                        normalize_dtype, normalize_fill_value, normalize_order,
                        normalize_shape, normalize_storage_path, retry_call)
 
+from zarr._storage.absstore import ABSStore  # noqa: F401
+from zarr._storage.store import (_get_hierarchy_metadata,
+                                 _listdir_from_keys,
+                                 _rename_from_keys,
+                                 _rmdir_from_keys,
+                                 _path_to_prefix,
+                                 _prefix_to_array_key,
+                                 _prefix_to_attrs_key,
+                                 _prefix_to_group_key,
+                                 array_meta_key,
+                                 group_meta_key,
+                                 attrs_key,
+                                 Store,
+                                 StoreV3)
+
 __doctest_requires__ = {
     ('RedisStore', 'RedisStore.*'): ['redis'],
     ('MongoDBStore', 'MongoDBStore.*'): ['pymongo'],
-    ('ABSStore', 'ABSStore.*'): ['azure.storage.blob'],
     ('LRUStoreCache', 'LRUStoreCache.*'): ['s3fs'],
 }
 
-
-array_meta_key = '.zarray'
-group_meta_key = '.zgroup'
-attrs_key = '.zattrs'
 try:
     # noinspection PyUnresolvedReferences
     from zarr.codecs import Blosc
@@ -79,175 +89,12 @@ except ImportError:  # pragma: no cover
 Path = Union[str, bytes, None]
 
 
-class Store(MutableMapping):
-    """Base class for stores implementation.
-
-    Provide a number of default method as well as other typing guaranties for
-    mypy.
-
-    Stores cannot be mutable mapping as they do have a couple of other
-    requirements that would break Liskov substitution principle (stores only
-    allow strings as keys, mutable mapping are more generic).
-
-    And Stores do requires a few other method.
-
-    Having no-op base method also helps simplifying store usage and do not need
-    to check the presence of attributes and methods, like `close()`.
-
-    Stores can be used as context manager to make sure they close on exit.
-
-    .. added: 2.9.0
-
-    """
-
-    _readable = True
-    _writeable = True
-    _erasable = True
-    _listable = True
-    _store_version = 2           # v2-specific
-    _metadata_class = Metadata2  # v2-specific
-    # TODO: add _dimension_separator to Store? would require updating hashes again in test_core.py
-    # _dimension_separator = '.'   # TODO: Only have this attribute for v2 Stores? individual arrays have a ["chunk_grid"]["separator"] in v3
-
-    def is_readable(self):
-        return self._readable
-
-    def is_writeable(self):
-        return self._writeable
-
-    def is_listable(self):
-        return self._listable
-
-    def is_erasable(self):
-        return self._erasable
-
-    def __enter__(self):
-        if not hasattr(self, "_open_count"):
-            self._open_count = 0
-        self._open_count += 1
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._open_count -= 1
-        if self._open_count == 0:
-            self.close()
-
-    # TODO: existing zarr-python v2 stores define listdir, but the v3 spec
-    #       calls this method list_dir.
-    def listdir(self, path: str = "") -> List[str]:
-        path = normalize_storage_path(path)
-        return _listdir_from_keys(self, path)
-
-    def rename(self, src_path: str, dst_path: str) -> None:
-        if not self.is_erasable():
-            raise NotImplementedError(
-                f'{type(self)} is not erasable, cannot call "rename"'
-            )  # pragma: no cover
-        _rename_from_keys(self, src_path, dst_path)
-
-    def rmdir(self, path: str = "") -> None:
-        if not self.is_erasable():
-            raise NotImplementedError(
-                f'{type(self)} is not erasable, cannot call "rmdir"'
-            )  # pragma: no cover
-        path = normalize_storage_path(path)
-        _rmdir_from_keys(self, path)
-
-    def close(self) -> None:
-        """Do nothing by default"""
-        pass
-
-    @staticmethod
-    def _ensure_store(store):
-        """
-        We want to make sure internally that zarr stores are always a class
-        with a specific interface derived from ``Store``, which is slightly
-        different than ``MutableMapping``.
-
-        We'll do this conversion in a few places automatically
-        """
-        if store is None:
-            return None
-        elif isinstance(store, Store):
-            return store
-        elif isinstance(store, MutableMapping):
-            return KVStore(store)
-        else:
-            for attr in [
-                "keys",
-                "values",
-                "get",
-                "__setitem__",
-                "__getitem__",
-                "__delitem__",
-                "__contains__",
-            ]:
-                if not hasattr(store, attr):
-                    break
-            else:
-                return KVStore(store)
-
-        raise ValueError(
-            "Starting with Zarr 2.9.0, stores must be subclasses of Store, if "
-            "your store exposes the MutableMapping interface wrap it in "
-            f"Zarr.storage.KVStore. Got {store}"
-        )
-
-
-def _path_to_prefix(path: Optional[str]) -> str:
-    # assume path already normalized
-    if path:
-        prefix = path + '/'
-    else:
-        prefix = ''
-    return prefix
-
-
-# TODO: build into __contains__
-def _prefix_to_array_key(store: Store, prefix: str) -> str:
-    if getattr(store, "_store_version", 2) == 3:
-        if prefix:
-            sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
-            key = "meta/root/" + prefix.rstrip("/") + ".array" + sfx
-        else:
-            raise ValueError("prefix must be supplied to initialize a zarr v3 array")
-    else:
-        key = prefix + array_meta_key
-    return key
-
-
 def contains_array(store: Store, path: Path = None) -> bool:
     """Return True if the store contains an array at the given logical path."""
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_array_key(store, prefix)
     return key in store
-
-
-def _prefix_to_group_key(store: Store, prefix: str) -> str:
-    if getattr(store, "_store_version", 2) == 3:
-        if prefix:
-            sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
-            key = "meta/root/" + prefix.rstrip('/') + ".group" + sfx
-        else:
-            raise ValueError("prefix must be supplied to initialize a zarr v3 group")
-    else:
-        key = prefix + group_meta_key
-    return key
-
-
-# TODO: Should this return default metadata or raise an Error if zarr.json
-#       is absent?
-def _get_hierarchy_metadata(store=None):
-    meta = _default_entry_point_metadata_v3
-    if store is not None:
-        version = getattr(store, '_store_version', 2)
-        if version < 3:
-            raise ValueError("metadata key suffix not stored for zarr "
-                             f"v{version} stores")
-        if 'zarr.json' in store:
-            meta = store._metadata_class.decode_hierarchy_metadata(store['zarr.json'])
-    return meta
 
 
 def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
@@ -267,32 +114,6 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
         if store.list_prefix(implicit_prefix):
             return True
         return False
-
-def _prefix_to_attrs_key(store: Store, prefix: str) -> str:
-    if getattr(store, "_store_version", 2) == 3:
-        # for v3, attributes are stored in the array metadata
-        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
-        if prefix:
-            key = "meta/root/" + prefix + ".array" + sfx
-        else:
-            raise ValueError("must provide prefix for v3")
-    else:
-        key = prefix + attrs_key
-    return key
-
-
-def _rmdir_from_keys(store: Store, path: Optional[str] = None) -> None:
-    if getattr(store, '_store_version', 2) == 3:
-        prefix = _path_to_prefix(path)
-        for key in list(store.keys()):
-            if key.startswith(prefix):
-                del store[key]
-    else:
-        # assume path already normalized
-        prefix = _path_to_prefix(path)
-        for key in list(store.keys()):
-            if key.startswith(prefix):
-                del store[key]
 
 
 def rmdir(store: Store, path: Path = None):
@@ -328,35 +149,6 @@ def rmdir(store: Store, path: Path = None):
         if group_meta_file in store:
             store.erase(group_meta_file)
 
-
-def _rename_from_keys(store: Store, src_path: str, dst_path: str) -> None:
-    # assume path already normalized
-    src_prefix = _path_to_prefix(src_path)
-    dst_prefix = _path_to_prefix(dst_path)
-    version = getattr(store, '_store_version', 2)
-    if version == 2:
-        root_prefixes = ['']
-    elif version == 3:
-        root_prefixes = ['meta/root/', 'data/root/']
-    for root_prefix in root_prefixes:
-        _src_prefix = root_prefix + src_prefix
-        _dst_prefix = root_prefix + dst_prefix
-        for key in list(store.keys()):
-            if key.startswith(_src_prefix):
-                new_key = _dst_prefix + key.lstrip(_src_prefix)
-                store[new_key] = store.pop(key)
-    if version == 3:
-        sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
-        _src_array_json = 'meta/root/' + src_prefix[:-1] + '.array' + sfx
-        if _src_array_json in store:
-            new_key = 'meta/root/' + dst_prefix[:-1] + '.array' + sfx
-            store[new_key] = store.pop(_src_array_json)
-        _src_group_json = 'meta/root/' + src_prefix[:-1] + '.group' + sfx
-        if _src_group_json in store:
-            new_key = 'meta/root/' + dst_prefix[:-1] + '.group' + sfx
-            store[new_key] = store.pop(_src_group_json)
-
-
 def rename(store: Store, src_path: Path, dst_path: Path):
     """Rename all items under the given path. If `store` provides a `rename` method,
     this will be called, otherwise will fall back to implementation via the
@@ -371,35 +163,23 @@ def rename(store: Store, src_path: Path, dst_path: Path):
         _rename_from_keys(store, src_path, dst_path)
 
 
-def _listdir_from_keys(store: Store, path: Optional[str] = None) -> List[str]:
-    # assume path already normalized
-    prefix = _path_to_prefix(path)
-    children = set()
-    for key in list(store.keys()):
-        if key.startswith(prefix) and len(key) > len(prefix):
-            suffix = key[len(prefix):]
-            child = suffix.split('/')[0]
-            children.add(child)
-    return sorted(children)
+# def _norm(k):
+#     # normalize for v2 keys
+#     if k.endswith(".group"):
+#         return k[:-6] + "/"
+#     elif k.endswith(".array"):
+#         return k[:-6]
+#     return k
 
 
-def _norm(k):
-    # normalize for v2 keys
-    if k.endswith(".group"):
-        return k[:-6] + "/"
-    elif k.endswith(".array"):
-        return k[:-6]
-    return k
-
-
-def _norm_v3(k, metadata_key_suffix='.json'):
-    # normalize for v3 keys
-    if k.endswith(".group" + metadata_key_suffix):
-        return k[:-11] + "/"
-    elif k.endswith(".array" + metadata_key_suffix):
-        return k[:-11]
-    elif k.startswith('/meta/root/', '/data/root/'):
-        return k[10:]
+# def _norm_v3(k, metadata_key_suffix='.json'):
+#     # normalize for v3 keys
+#     if k.endswith(".group" + metadata_key_suffix):
+#         return k[:-11] + "/"
+#     elif k.endswith(".array" + metadata_key_suffix):
+#         return k[:-11]
+#     elif k.startswith('/meta/root/', '/data/root/'):
+#         return k[10:]
 
 
 def listdir(store: Store, path: Path = None):
@@ -477,6 +257,7 @@ def getsize(store: Store, path: Path = None) -> int:
                 # prefix = _path_to_prefix(path)
                 members = store.list_prefix('data/root/' + path)
                 members += store.list_prefix('meta/root/' + path)
+                # members += ['zarr.json']
                 for k in members:
                     try:
                         v = store[k]
@@ -578,7 +359,7 @@ def init_array(
     Initialize an array store::
 
         >>> from zarr.storage import init_array
-        >>> store = dict()
+        >>> store = KVStore(dict())
         >>> init_array(store, shape=(10000, 10000), chunks=(1000, 1000))
         >>> sorted(store.keys())
         ['.zarray']
@@ -933,16 +714,6 @@ def _init_group_metadata(
     store[key] = store._metadata_class.encode_group_metadata(meta)
 
 
-def _dict_store_keys(d: Dict, prefix="", cls=dict):
-    for k in d.keys():
-        v = d[k]
-        if isinstance(v, cls):
-            for sk in _dict_store_keys(v, prefix + k + '/', cls):
-                yield sk
-        else:
-            yield prefix + k
-
-
 class KVStore(Store):
     """
     This provides a default implementation of a store interface around
@@ -984,6 +755,16 @@ class KVStore(Store):
             return self._mutable_mapping == other._mutable_mapping
         else:
             return NotImplemented
+
+
+def _dict_store_keys(d: Dict, prefix="", cls=dict):
+    for k in d.keys():
+        v = d[k]
+        if isinstance(v, cls):
+            for sk in _dict_store_keys(v, prefix + k + '/', cls):
+                yield sk
+        else:
+            yield prefix + k
 
 
 class MemoryStore(Store):
@@ -1408,11 +1189,36 @@ class DirectoryStore(Store):
         return dir_path
 
     def listdir(self, path=None):
+        return self._dimension_separator == "/" and \
+            self._nested_listdir(path) or self._flat_listdir(path)
+
+    def _flat_listdir(self, path=None):
         dir_path = self.dir_path(path)
         if os.path.isdir(dir_path):
             return sorted(os.listdir(dir_path))
         else:
             return []
+
+    def _nested_listdir(self, path=None):
+        children = self._flat_listdir(path=path)
+        if array_meta_key in children:
+            # special handling of directories containing an array to map nested chunk
+            # keys back to standard chunk keys
+            new_children = []
+            root_path = self.dir_path(path)
+            for entry in children:
+                entry_path = os.path.join(root_path, entry)
+                if _prog_number.match(entry) and os.path.isdir(entry_path):
+                    for dir_path, _, file_names in os.walk(entry_path):
+                        for file_name in file_names:
+                            file_path = os.path.join(dir_path, file_name)
+                            rel_path = file_path.split(root_path + os.path.sep)[1]
+                            new_children.append(rel_path.replace(os.path.sep, '.'))
+                else:
+                    new_children.append(entry)
+            return sorted(new_children)
+        else:
+            return children
 
     def rename(self, src_path, dst_path):
         store_src_path = normalize_storage_path(src_path)
@@ -1683,17 +1489,6 @@ _prog_ckey = re.compile(r'^(\d+)(\.\d+)+$')
 _prog_number = re.compile(r'^\d+$')
 
 
-def _nested_map_ckey(key):
-    segments = list(key.split('/'))
-    if segments:
-        last_segment = segments[-1]
-        if _prog_ckey.match(last_segment):
-            last_segment = last_segment.replace('.', '/')
-            segments = segments[:-1] + [last_segment]
-            key = '/'.join(segments)
-    return key
-
-
 class NestedDirectoryStore(DirectoryStore):
     """Storage class using directories and files on a standard file system, with
     special handling for chunk keys so that chunk files for multidimensional
@@ -1776,48 +1571,11 @@ class NestedDirectoryStore(DirectoryStore):
                 "NestedDirectoryStore only supports '/' as dimension_separator")
         self._dimension_separator = dimension_separator
 
-    def __getitem__(self, key):
-        key = _nested_map_ckey(key)
-        return super().__getitem__(key)
-
-    def __setitem__(self, key, value):
-        key = _nested_map_ckey(key)
-        super().__setitem__(key, value)
-
-    def __delitem__(self, key):
-        key = _nested_map_ckey(key)
-        super().__delitem__(key)
-
-    def __contains__(self, key):
-        key = _nested_map_ckey(key)
-        return super().__contains__(key)
-
     def __eq__(self, other):
         return (
             isinstance(other, NestedDirectoryStore) and
             self.path == other.path
         )
-
-    def listdir(self, path=None):
-        children = super().listdir(path=path)
-        if array_meta_key in children:
-            # special handling of directories containing an array to map nested chunk
-            # keys back to standard chunk keys
-            new_children = []
-            root_path = self.dir_path(path)
-            for entry in children:
-                entry_path = os.path.join(root_path, entry)
-                if _prog_number.match(entry) and os.path.isdir(entry_path):
-                    for dir_path, _, file_names in os.walk(entry_path):
-                        for file_name in file_names:
-                            file_path = os.path.join(dir_path, file_name)
-                            rel_path = file_path.split(root_path + os.path.sep)[1]
-                            new_children.append(rel_path.replace(os.path.sep, '.'))
-                else:
-                    new_children.append(entry)
-            return sorted(new_children)
-        else:
-            return children
 
 
 # noinspection PyPep8Naming
@@ -2528,7 +2286,7 @@ class LRUStoreCache(Store):
 
     """
 
-    def __init__(self, store: Store, max_size: int):
+    def __init__(self, store, max_size: int):
         self._store = Store._ensure_store(store)
         self._max_size = max_size
         self._current_size = 0
@@ -2671,196 +2429,6 @@ class LRUStoreCache(Store):
         with self._mutex:
             self._invalidate_keys()
             self._invalidate_value(key)
-
-
-class ABSStore(Store):
-    """Storage class using Azure Blob Storage (ABS).
-
-    Parameters
-    ----------
-    container : string
-        The name of the ABS container to use.
-        .. deprecated::
-           Use ``client`` instead.
-    prefix : string
-        Location of the "directory" to use as the root of the storage hierarchy
-        within the container.
-    account_name : string
-        The Azure blob storage account name.
-        .. deprecated:: 2.8.3
-           Use ``client`` instead.
-    account_key : string
-        The Azure blob storage account access key.
-        .. deprecated:: 2.8.3
-           Use ``client`` instead.
-    blob_service_kwargs : dictionary
-        Extra arguments to be passed into the azure blob client, for e.g. when
-        using the emulator, pass in blob_service_kwargs={'is_emulated': True}.
-        .. deprecated:: 2.8.3
-           Use ``client`` instead.
-    dimension_separator : {'.', '/'}, optional
-        Separator placed between the dimensions of a chunk.
-    client : azure.storage.blob.ContainerClient, optional
-        And ``azure.storage.blob.ContainerClient`` to connect with. See
-        `here <https://docs.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.containerclient?view=azure-python>`_  # noqa
-        for more.
-
-        .. versionadded:: 2.8.3
-
-    Notes
-    -----
-    In order to use this store, you must install the Microsoft Azure Storage SDK for Python,
-    ``azure-storage-blob>=12.5.0``.
-    """
-
-    def __init__(self, container=None, prefix='', account_name=None, account_key=None,
-                 blob_service_kwargs=None, dimension_separator=None,
-                 client=None,
-                 ):
-        self._dimension_separator = dimension_separator
-        self.prefix = normalize_storage_path(prefix)
-        if client is None:
-            # deprecated option, try to construct the client for them
-            msg = (
-                "Providing 'container', 'account_name', 'account_key', and 'blob_service_kwargs'"
-                "is deprecated. Provide and instance of 'azure.storage.blob.ContainerClient' "
-                "'client' instead."
-            )
-            warnings.warn(msg, FutureWarning, stacklevel=2)
-            from azure.storage.blob import ContainerClient
-            blob_service_kwargs = blob_service_kwargs or {}
-            client = ContainerClient(
-                "https://{}.blob.core.windows.net/".format(account_name), container,
-                credential=account_key, **blob_service_kwargs
-                )
-
-        self.client = client
-        self._container = container
-        self._account_name = account_name
-        self._account_key = account_key
-
-    def _warn_deprecated(self, property_):
-        msg = ("The {} property is deprecated and will be removed in a future "
-               "version. Get the property from 'ABSStore.client' instead.")
-        warnings.warn(msg.format(property_), FutureWarning, stacklevel=3)
-
-    @property
-    def container(self):
-        self._warn_deprecated("container")
-        return self._container
-
-    @property
-    def account_name(self):
-        self._warn_deprecated("account_name")
-        return self._account_name
-
-    @property
-    def account_key(self):
-        self._warn_deprecated("account_key")
-        return self._account_key
-
-    def _append_path_to_prefix(self, path):
-        if self.prefix == '':
-            return normalize_storage_path(path)
-        else:
-            return '/'.join([self.prefix, normalize_storage_path(path)])
-
-    @staticmethod
-    def _strip_prefix_from_path(path, prefix):
-        # normalized things will not have any leading or trailing slashes
-        path_norm = normalize_storage_path(path)
-        prefix_norm = normalize_storage_path(prefix)
-        if prefix:
-            return path_norm[(len(prefix_norm)+1):]
-        else:
-            return path_norm
-
-    def __getitem__(self, key):
-        from azure.core.exceptions import ResourceNotFoundError
-        blob_name = self._append_path_to_prefix(key)
-        try:
-            return self.client.download_blob(blob_name).readall()
-        except ResourceNotFoundError:
-            raise KeyError('Blob %s not found' % blob_name)
-
-    def __setitem__(self, key, value):
-        value = ensure_bytes(value)
-        blob_name = self._append_path_to_prefix(key)
-        self.client.upload_blob(blob_name, value, overwrite=True)
-
-    def __delitem__(self, key):
-        from azure.core.exceptions import ResourceNotFoundError
-        try:
-            self.client.delete_blob(self._append_path_to_prefix(key))
-        except ResourceNotFoundError:
-            raise KeyError('Blob %s not found' % key)
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, ABSStore) and
-            self.client == other.client and
-            self.prefix == other.prefix
-        )
-
-    def keys(self):
-        return list(self.__iter__())
-
-    def __iter__(self):
-        if self.prefix:
-            list_blobs_prefix = self.prefix + '/'
-        else:
-            list_blobs_prefix = None
-        for blob in self.client.list_blobs(list_blobs_prefix):
-            yield self._strip_prefix_from_path(blob.name, self.prefix)
-
-    def __len__(self):
-        return len(self.keys())
-
-    def __contains__(self, key):
-        blob_name = self._append_path_to_prefix(key)
-        return self.client.get_blob_client(blob_name).exists()
-
-    def listdir(self, path: Path = None):
-        dir_path = normalize_storage_path(self._append_path_to_prefix(path))
-        if dir_path:
-            dir_path += '/'
-        items = [
-            self._strip_prefix_from_path(blob.name, dir_path)
-            for blob in self.client.walk_blobs(name_starts_with=dir_path, delimiter='/')
-        ]
-        return items
-
-    def rmdir(self, path=None):
-        dir_path = normalize_storage_path(self._append_path_to_prefix(path))
-        if dir_path:
-            dir_path += '/'
-        for blob in self.client.list_blobs(name_starts_with=dir_path):
-            self.client.delete_blob(blob)
-
-    def getsize(self, path=None):
-        store_path = normalize_storage_path(path)
-        fs_path = self._append_path_to_prefix(store_path)
-        if fs_path:
-            blob_client = self.client.get_blob_client(fs_path)
-        else:
-            blob_client = None
-
-        if blob_client and blob_client.exists():
-            return blob_client.get_blob_properties().size
-        else:
-            size = 0
-            if fs_path == '':
-                fs_path = None
-            elif not fs_path.endswith('/'):
-                fs_path += '/'
-            for blob in self.client.walk_blobs(name_starts_with=fs_path, delimiter='/'):
-                blob_client = self.client.get_blob_client(blob)
-                if blob_client.exists():
-                    size += blob_client.get_blob_properties().size
-            return size
-
-    def clear(self):
-        self.rmdir()
 
 
 class SQLiteStore(Store):
@@ -3300,236 +2868,29 @@ class ConsolidatedMetadataStore(Store):
 
 """ versions of stores following the v3 protocol """
 
-class StoreV3(Store):
-    _store_version = 3
-    _metadata_class = Metadata3
 
-    @staticmethod
-    def _valid_key(key: str) -> bool:
-        """
-        Verify that a key conforms to the specification.
+def _get_files_and_dirs_from_path(store, path):
+    path = normalize_storage_path(path)
 
-        A key is any string containing only character in the range a-z, A-Z,
-        0-9, or in the set /.-_ it will return True if that's the case, False
-        otherwise.
+    files = []
+    # add array metadata file if present
+    array_key = _prefix_to_array_key(store, path)
+    if array_key in store:
+        files.append(os.path.join(store.path, array_key))
 
-        In addition, in spec v3, keys can only start with the prefix meta/,
-        data/ or be exactly zarr.json and should not end with /. This should
-        not be exposed to the user, and is a store implementation detail, so
-        this method will raise a ValueError in that case.
-        """
-        if sys.version_info > (3, 7):
-            if not key.isascii():
-                return False
-        if set(key) - set(ascii_letters + digits + "/.-_"):
-            return False
+    # add group metadata file if present
+    group_key = _prefix_to_group_key(store, path)
+    if group_key in store:
+        files.append(os.path.join(store.path, group_key))
 
-        if (
-            not key.startswith("data/")
-            and (not key.startswith("meta/"))
-            and (not key == "zarr.json")
-        ):
-            raise ValueError("keys starts with unexpected value: `{}`".format(key))
+    dirs = []
+    # add array and group folders if present
+    for d in ['data/root/' + path, 'meta/root/' + path]:
+        dir_path = os.path.join(store.path, d)
+        if os.path.exists(dir_path):
+            dirs.append(dir_path)
+    return files, dirs
 
-        if key.endswith('/'):
-            raise ValueError("keys may not end in /")
-
-        return True
-
-    def get(self, key: str):
-        """
-        default implementation of get that validate the key, a
-        check that the return value by bytes. This relies on ``def _get(key)``
-        to be implmented.
-
-        Will ensure that the following are correct:
-            - return group metadata objects are json and contain a single
-              `attributes` key.
-        """
-        assert self._valid_key(key), key
-        result = self._get(key)
-        assert isinstance(result, bytes), "Expected bytes, got {}".format(result)
-        if key == "zarr.json":
-            v = json.loads(result.decode())
-            assert set(v.keys()) == {
-                "zarr_format",
-                "metadata_encoding",
-                "metadata_key_suffix",
-                "extensions",
-            }, "v is {}".format(v)
-        elif key.endswith("/.group"):
-            v = json.loads(result.decode())
-            assert set(v.keys()) == {"attributes"}, "got unexpected keys {}".format(
-                v.keys()
-            )
-        return result
-
-    def set(self, key: str, value: bytes):
-            """
-            default implementation of set that validates the key, and
-            checks that the return value by bytes. This relies on
-            `def _set(key, value)` to be implmented.
-
-            Will ensure that the following are correct:
-                - set group metadata objects are json and contain a single
-                  `attributes` key.
-            """
-            if key == "zarr.json":
-                v = json.loads(value.decode())
-                assert set(v.keys()) == {
-                    "zarr_format",
-                    "metadata_encoding",
-                    "metadata_key_suffix",
-                    "extensions",
-                }, "v is {}".format(v)
-            elif key.endswith(".array"):
-                v = json.loads(value.decode())
-                expected = {
-                    "shape",
-                    "data_type",
-                    "chunk_grid",
-                    "chunk_memory_layout",
-                    "compressor",
-                    "fill_value",
-                    "extensions",
-                    "attributes",
-                }
-                current = set(v.keys())
-                current = current - {'dimension_separator'}  # TODO: ignore possible extra dimension_separator entry in .array
-                # ets do some conversions.
-                assert current == expected, "{} extra, {} missing in {}".format(
-                    current - expected, expected - current, v
-                )
-
-            assert isinstance(value, bytes)
-            assert self._valid_key(key)
-            self._set(key, value)
-
-    def list_prefix(self, prefix):
-        if prefix.startswith('/'):
-            raise ValueError("prefix must not begin with /")
-        return [k for k in self.list() if k.startswith(prefix)]
-
-    def erase(self, key):
-        self.__delitem__(key)
-
-    #def erase(self, key):
-    #    del self._mutable_mapping[key]
-
-    def erase_prefix(self, prefix):
-        assert prefix.endswith("/")
-
-        if prefix == "/":
-            all_keys = self.list()
-        else:
-            all_keys = self.list_prefix(prefix)
-        for key in all_keys:
-            self.erase(key)
-
-    # TODO: what was this for? (was in Matthias's v3 branch)
-    # def initialize(self):
-    #     pass
-
-    def list_dir(self, prefix):
-        """
-        Note: carefully test this with trailing/leading slashes
-        """
-        if prefix:  # allow prefix = "" ?
-            assert prefix.endswith("/")
-
-        all_keys = self.list_prefix(prefix)
-        len_prefix = len(prefix)
-        keys = []
-        prefixes = []
-        for k in all_keys:
-            trail = k[len_prefix:]
-            if "/" not in trail:
-                keys.append(prefix + trail)
-            else:
-                prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
-        return keys, list(set(prefixes))
-
-
-    def list(self):
-        if hasattr(self, 'keys'):
-            return list(self.keys())
-        raise NotImplementedError(
-            "The list method has not been implemented for this store type."
-        )
-
-    # Remove? This method is just to match the current V2 stores
-    # The v3 spec mentions: list, list_dir, list_prefix
-    def listdir(self, path: str = ""):  # to override inherited v2 listdir
-        # TODO: just call list_dir or raise NotImpelementedError?
-        if path and not path.endswith("/"):
-            path = path + "/"
-        keys, prefixes = self.list_dir(path)
-        prefixes = [p[len(path):].rstrip("/") for p in prefixes]
-        keys = [k[len(path):] for k in keys]
-        return keys + prefixes
-
-    # TODO: this was in Matthias's branch, but may want to just keep __contains__ only
-    #def contains(self, key):
-    #    assert key.startswith(("meta/", "data/")), "Got {}".format(key)
-    #    return key in self.list()
-
-    def __contains__(self, key):
-        # TODO: re-enable this check?
-        # if not key.startswith(("meta/", "data/")):
-        #     raise ValueError(
-        #         f'Key must start with either "meta/" or "data/". '
-        #         f'Got {key}'
-        #     )
-        return key in self.list()
-
-    def clear(self):
-        """Remove all items from store."""
-        self.erase_prefix("/")
-
-    #def __eq__(self, other):
-    #    return type(other) == type(self) and self.path == other.path
-
-    def __eq__(self, other):
-        if isinstance(other, KVStoreV3):
-            return self._mutable_mapping == other._mutable_mapping
-        else:
-            return NotImplemented
-
-    @staticmethod
-    def _ensure_store(store):
-        """
-        We want to make sure internally that zarr stores are always a class
-        with a specific interface derived from ``Store``, which is slightly
-        different than ``MutableMapping``.
-
-        We'll do this conversion in a few places automatically
-        """
-        if store is None:
-            return None
-        elif isinstance(store, Store):
-            return store
-        elif isinstance(store, MutableMapping):
-            return KVStoreV3(store)
-        else:
-            for attr in [
-                "keys",
-                "values",
-                "get",
-                "__setitem__",
-                "__getitem__",
-                "__delitem__",
-                "__contains__",
-            ]:
-                if not hasattr(store, attr):
-                    break
-            else:
-                return KVStoreV3(store)
-
-        raise ValueError(
-            "Starting with Zarr 2.9.0, stores must be subclasses of Store, if "
-            "your store exposes the MutableMapping interface wrap it in "
-            f"Zarr.storage.KVStoreV3. Got {store}"
-        )
 
 # Note: The KVStoreV3 method resolution order (MRO) will be as follows:
 # KVStoreV3.__mro__ == [zarr.storage.KVStoreV3,
@@ -3557,6 +2918,15 @@ class FSStoreV3(FSStore, StoreV3):
     def _normalize_key(self, key):
         key = normalize_storage_path(key).lstrip('/')
         return key.lower() if self.normalize_keys else key
+
+    def getsize(self, path=None):
+        files, dirs = _get_files_and_dirs_from_path(self, path)
+        size = 0
+        for file in files:
+            size += os.path.getsize(file)
+        for d in dirs:
+            size += self.fs.du(d, total=True, maxdepth=None)
+        return size
 
     # def listdir(self, path=None):
     #     raise NotImplementedError("TODO: update this function for V3")
@@ -3620,6 +2990,7 @@ class FSStoreV3(FSStore, StoreV3):
     #     return keys, list(set(prefixes))
 
 
+
 class MemoryStoreV3(MemoryStore, StoreV3):
 
     def __init__(self, root=None, cls=dict, dimension_separator=None):
@@ -3660,6 +3031,8 @@ class MemoryStoreV3(MemoryStore, StoreV3):
     #     else:
     #         return []
 
+    # TODO: rename(), getsize()
+
     def list(self):
         return list(self.keys())
 
@@ -3676,6 +3049,17 @@ class DirectoryStoreV3(DirectoryStore, StoreV3):
             isinstance(other, DirectoryStoreV3) and
             self.path == other.path
         )
+
+    def getsize(self, path=None):
+        files, dirs = _get_files_and_dirs_from_path(self, path)
+        size = 0
+        for file in files:
+            size += os.path.getsize(file)
+        for d in dirs:
+            for child in scandir(d):
+                if child.is_file():
+                    size += child.stat().st_size
+        return size
 
     def rename(self, src_path, dst_path, metadata_key_suffix='.json'):
         store_src_path = normalize_storage_path(src_path)
@@ -3778,23 +3162,21 @@ SQLiteStoreV3.__doc__ = SQLiteStore.__doc__
 
 class LRUStoreCacheV3(LRUStoreCache, StoreV3):
 
+    def __init__(self, store, max_size: int):
+        self._store = StoreV3._ensure_store(store)
+        self._max_size = max_size
+        self._current_size = 0
+        self._keys_cache = None
+        self._contains_cache = None
+        self._listdir_cache: Dict[Path, Any] = dict()
+        self._values_cache: Dict[Path, Any] = OrderedDict()
+        self._mutex = Lock()
+        self.hits = self.misses = 0
+
     def list(self):
         return list(self.keys())
 
 LRUStoreCacheV3.__doc__ = LRUStoreCache.__doc__
-
-
-# TODO: add tests for ABSStoreV3
-class ABSStoreV3(ABSStore, StoreV3):
-
-    def __eq__(self, other):
-        return (
-            isinstance(other, ABSStoreV3) and
-            self.client == other.client and
-            self.prefix == other.prefix
-        )
-
-ABSStoreV3.__doc__ = ABSStore.__doc__
 
 
 def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
@@ -3812,7 +3194,9 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
             # add default zarr.json metadata
             store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
         return store
-    elif isinstance(store, str):
+    if isinstance(store, os.PathLike):
+        store = os.fspath(store)
+    if isinstance(store, str):
         mode = mode if clobber else "r"
         if zarr_version == 2:
             if "://" in store or "::" in store:
@@ -3822,6 +3206,7 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
             if store.endswith('.zip'):
                 return ZipStore(store, mode=mode)
             elif store.endswith('.n5'):
+                from zarr.n5 import N5Store
                 return N5Store(store)
             else:
                 return DirectoryStore(store)
