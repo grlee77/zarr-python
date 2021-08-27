@@ -1100,22 +1100,6 @@ class TestMappingStoreV3(StoreV3Tests):
         pass
 
 
-# class TestMemoryStoreV3(StoreV3Tests):
-
-#     def create_store(self, **kwargs):
-#         # skip_if_nested_chunks(**kwargs)
-#         return MemoryStoreV3(**kwargs)
-
-#     def test_store_contains_bytes(self):
-#         store = self.create_store()
-#         store['foo'] = np.array([97, 98, 99, 100, 101], dtype=np.uint8)
-#         assert store['foo'] == b'abcde'
-
-#     def test_setdel(self):
-#         store = self.create_store()
-#         setdel_hierarchy_checks_v3(store)
-
-
 def setdel_hierarchy_checks(store):
     # these tests are for stores that are aware of hierarchy levels; this
     # behaviour is not stricly required by Zarr but these tests are included
