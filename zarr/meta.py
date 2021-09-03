@@ -63,7 +63,12 @@ class Metadata2:
         try:
             # dimension_separator = meta.get("dimension_separator", None)
             dtype = cls.decode_dtype(meta["dtype"])
-            fill_value = cls.decode_fill_value(meta["fill_value"], dtype)
+            if dtype.hasobject:
+                import numcodecs
+                object_codec = numcodecs.get_codec(meta['filters'][0])
+            else:
+                object_codec = None
+            fill_value = cls.decode_fill_value(meta['fill_value'], dtype, object_codec)
             meta = dict(
                 zarr_format=meta["zarr_format"],
                 shape=tuple(meta["shape"]),
@@ -89,13 +94,18 @@ class Metadata2:
         if dtype.subdtype is not None:
             dtype, sdshape = dtype.subdtype
         dimension_separator = meta.get("dimension_separator")
+        if dtype.hasobject:
+            import numcodecs
+            object_codec = numcodecs.get_codec(meta['filters'][0])
+        else:
+            object_codec = None
         meta = dict(
             zarr_format=cls.ZARR_FORMAT,
             shape=meta["shape"] + sdshape,
             chunks=meta["chunks"],
             dtype=cls.encode_dtype(dtype),
             compressor=meta["compressor"],
-            fill_value=encode_fill_value(meta["fill_value"], dtype),
+            fill_value=encode_fill_value(meta["fill_value"], dtype, object_codec),
             order=meta["order"],
             filters=meta["filters"],
         )
@@ -143,9 +153,16 @@ class Metadata2:
         return json_dumps(meta)
 
     @classmethod
-    def decode_fill_value(cls, v, dtype):
+    def decode_fill_value(cls, v, dtype, object_codec=None):
         # early out
         if v is None:
+            return v
+        if dtype.kind == 'V' and dtype.hasobject:
+            if object_codec is None:
+                raise ValueError('missing object_codec for object array')
+            v = base64.standard_b64decode(v)
+            v = object_codec.decode(v)
+            v = np.array(v, dtype=dtype)[()]
             return v
         if dtype.kind == "f":
             if v == "NaN":
@@ -184,9 +201,15 @@ class Metadata2:
             return np.array(v, dtype=dtype)[()]
 
     @classmethod
-    def encode_fill_value(cls, v, dtype):
+    def encode_fill_value(cls, v: Any, dtype: np.dtype, object_codec: Any = None) -> Any:
         # early out
         if v is None:
+            return v
+        if dtype.kind == 'V' and dtype.hasobject:
+            if object_codec is None:
+                raise ValueError('missing object_codec for object array')
+            v = object_codec.encode(v)
+            v = str(base64.standard_b64encode(v), 'ascii')
             return v
         if dtype.kind == "f":
             if np.isnan(v):
@@ -203,8 +226,8 @@ class Metadata2:
             return bool(v)
         elif dtype.kind in "c":
             v = (
-                cls.encode_fill_value(v.real, dtype.type().real.dtype),
-                cls.encode_fill_value(v.imag, dtype.type().imag.dtype),
+                cls.encode_fill_value(v.real, dtype.type().real.dtype, object_code),
+                cls.encode_fill_value(v.imag, dtype.type().imag.dtype, object_code),
             )
             return v
         elif dtype.kind in "SV":
@@ -304,7 +327,12 @@ class Metadata3(Metadata2):
         # extract array metadata fields
         try:
             dtype = cls.decode_dtype(meta["data_type"])
-            fill_value = cls.decode_fill_value(meta["fill_value"], dtype)
+            if dtype.hasobject:
+                import numcodecs
+                object_codec = numcodecs.get_codec(meta['filters'][0])
+            else:
+                object_codec = None
+            fill_value = cls.decode_fill_value(meta["fill_value"], dtype, object_codec)
             # TODO: remove dimension_separator?
             meta = dict(
                 zarr_format=meta["zarr_format"],
@@ -336,6 +364,11 @@ class Metadata3(Metadata2):
         if dtype.subdtype is not None:
             dtype, sdshape = dtype.subdtype
         dimension_separator = meta.get("dimension_separator")
+        if dtype.hasobject:
+            import numcodecs
+            object_codec = numcodecs.get_codec(meta['filters'][0])
+        else:
+            object_codec = None
         meta = dict(
             zarr_format=cls.ZARR_FORMAT,
             shape=meta["shape"] + sdshape,
@@ -346,7 +379,7 @@ class Metadata3(Metadata2):
             ),
             data_type=cls.encode_dtype(dtype),
             compressor=meta["compressor"],
-            fill_value=encode_fill_value(meta["fill_value"], dtype),
+            fill_value=encode_fill_value(meta["fill_value"], dtype, object_codec),
             chunk_memory_layout=meta["chunk_memory_layout"],
             attributes=meta.get("attributes", {}),
         )
