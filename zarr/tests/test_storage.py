@@ -1090,6 +1090,37 @@ class StoreV3Tests(StoreTests):
         pytest.skip("TODO: hierarchy tests appropriate for v3")
 
 
+    def test_getsize(self):
+        pytest.skip("TODO: determine getsize behavior for v3")
+        # TODO: determine proper getsize() behavior for v3
+
+        # for a given path:
+        #    return combined size of both the meta/root/path and data/root/path?
+        #    Any path not under meta/root/ or data/root/ (or zarr.json) returns size 0?
+        #    Should raise error on trying to write to such a path for v3?
+
+        # store = self.create_store()
+        # if isinstance(store, dict) or hasattr(store, 'getsize'):
+        #     assert 0 == getsize(store)
+        #     store['foo'] = b'x'
+        #     assert 1 == getsize(store)
+        #     assert 1 == getsize(store, 'foo')
+        #     store['bar'] = b'yy'
+        #     assert 3 == getsize(store)
+        #     assert 2 == getsize(store, 'bar')
+        #     store['baz'] = bytearray(b'zzz')
+        #     assert 6 == getsize(store)
+        #     assert 3 == getsize(store, 'baz')
+        #     store['quux'] = array.array('B', b'zzzz')
+        #     assert 10 == getsize(store)
+        #     assert 4 == getsize(store, 'quux')
+        #     store['spong'] = np.frombuffer(b'zzzzz', dtype='u1')
+        #     assert 15 == getsize(store)
+        #     assert 5 == getsize(store, 'spong')
+
+        # store.close()
+
+
 class TestMappingStoreV3(StoreV3Tests):
 
     def create_store(self, **kwargs):

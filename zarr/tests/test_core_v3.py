@@ -15,6 +15,7 @@ from numcodecs import (BZ2, JSON, LZ4, Blosc, Categorize, Delta,
 from numcodecs.compat import ensure_bytes, ensure_ndarray
 from numcodecs.tests.common import greetings
 from numpy.testing import assert_array_almost_equal, assert_array_equal
+from pkg_resources import parse_version
 
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
@@ -384,6 +385,7 @@ class TestArrayWithPathV3(TestArrayWithPath):
 
     def test_structured_with_object(self):
         pytest.skip("v3 implementation doesn't support structured arrays")
+
 
 class TestArrayWithChunkStoreV3(TestArrayWithPathV3):
 

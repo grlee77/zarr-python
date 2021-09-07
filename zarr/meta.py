@@ -80,8 +80,6 @@ class Metadata2:
                 filters=meta["filters"],
                 dimension_separator=meta.get("dimension_separator", "."),
             )
-            # if dimension_separator:
-            #     meta["dimension_separator"] = dimension_separator
         except Exception as e:
             raise MetadataError("error decoding metadata") from e
         else:
@@ -226,8 +224,8 @@ class Metadata2:
             return bool(v)
         elif dtype.kind in "c":
             v = (
-                cls.encode_fill_value(v.real, dtype.type().real.dtype, object_code),
-                cls.encode_fill_value(v.imag, dtype.type().imag.dtype, object_code),
+                cls.encode_fill_value(v.real, dtype.type().real.dtype, object_codec),
+                cls.encode_fill_value(v.imag, dtype.type().imag.dtype, object_codec),
             )
             return v
         elif dtype.kind in "SV":

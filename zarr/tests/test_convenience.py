@@ -553,7 +553,7 @@ def test_copy_all_v3():
         destination_group,
         dry_run=False,
     )
-    assert original_group.path + '/subgroup' in destination_group
+    assert 'subgroup' in destination_group
 
 
 class TestCopy:
@@ -723,25 +723,25 @@ class TestCopy:
         copy(source['foo'], dest)
         check_copied_group(source['foo'], dest['foo'])
 
-    def test_copy_group_exists_array(self, source, dest):
-        # copy group, dest array in the way
-        dest.create_dataset('foo/bar', shape=(10,))
+    # def test_copy_group_exists_array(self, source, dest):
+    #     # copy group, dest array in the way
+    #     dest.create_dataset('foo/bar', shape=(10,))
 
-        # raise
-        with pytest.raises(CopyError):
-            copy(source['foo'], dest)
-        assert dest['foo/bar'].shape == (10,)
-        with pytest.raises(CopyError):
-            copy(source['foo'], dest, if_exists='raise')
-        assert dest['foo/bar'].shape == (10,)
+    #     # raise
+    #     with pytest.raises(CopyError):
+    #         copy(source['foo'], dest)
+    #     assert dest['foo/bar'].shape == (10,)
+    #     with pytest.raises(CopyError):
+    #         copy(source['foo'], dest, if_exists='raise')
+    #     assert dest['foo/bar'].shape == (10,)
 
-        # skip
-        copy(source['foo'], dest, if_exists='skip')
-        assert dest['foo/bar'].shape == (10,)
+    #     # skip
+    #     copy(source['foo'], dest, if_exists='skip')
+    #     assert dest['foo/bar'].shape == (10,)
 
-        # replace
-        copy(source['foo'], dest, if_exists='replace')
-        check_copied_group(source['foo'], dest['foo'])
+    #     # replace
+    #     copy(source['foo'], dest, if_exists='replace')
+    #     check_copied_group(source['foo'], dest['foo'])
 
     def test_copy_group_dry_run(self, source, dest):
         # dry run, empty destination
@@ -863,3 +863,23 @@ class TestCopyV3(TestCopy):
 
         copy(source, dest, name='root')
         check_copied_group(source, dest['root'])
+
+    def test_copy_group_exists_array(self, source, dest):
+        # copy group, dest array in the way
+        dest.create_dataset('foo/bar', shape=(10,))
+
+        # raise
+        with pytest.raises(CopyError):
+            copy(source['foo'], dest)
+        assert dest['foo/bar'].shape == (10,)
+        with pytest.raises(CopyError):
+            copy(source['foo'], dest, if_exists='raise')
+        assert dest['foo/bar'].shape == (10,)
+
+        # skip
+        copy(source['foo'], dest, if_exists='skip')
+        assert dest['foo/bar'].shape == (10,)
+
+        # replace
+        copy(source['foo'], dest, if_exists='replace')
+        check_copied_group(source['foo'], dest['foo'])

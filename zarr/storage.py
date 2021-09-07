@@ -94,6 +94,7 @@ def contains_array(store: Store, path: Path = None) -> bool:
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_array_key(store, prefix)
+    # print(f"array key={key}")
     return key in store
 
 
@@ -102,6 +103,7 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_group_key(store, prefix)
+    # print(f"group key={key}")
     store_version = getattr(store, '_store_version', 2)
     if store_version == 2 or explicit_only:
         return key in store
@@ -111,6 +113,7 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
         # for v3, need to also handle implicit groups
         sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
         implicit_prefix = key.replace('.group' + sfx, '/')
+        # print(f"implicit group prefix = {implicit_prefix}")
         if store.list_prefix(implicit_prefix):
             return True
         return False
@@ -239,7 +242,7 @@ def getsize(store: Store, path: Path = None) -> int:
     if hasattr(store, 'getsize'):
         # pass through
         return store.getsize(path)  # type: ignore
-    elif isinstance(store, MutableMapping):
+    if isinstance(store, MutableMapping):
         # compute from size of values
         if path in store:
             v = store[path]
@@ -652,6 +655,11 @@ def init_group(
     _init_group_metadata(store=store, overwrite=overwrite, path=path,
                          chunk_store=chunk_store)
 
+    if version == 3:
+        # TODO: should initializing a v3 group also create a corresponding
+        #       empty folder under data/root/? I think probably not until there
+        #       is actual data written there.
+        pass
 
 
 def _init_group_metadata(
