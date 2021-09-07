@@ -278,38 +278,34 @@ class Group(MutableMapping):
                         contains_group(self._store, path)):
                     yield key
         else:
-            # TODO: fix behavior for v3
             # TODO: Should this iterate over data folders and/or metadata
             #       folders and/or metadata files
 
-            use_meta = True
-            if use_meta:
-                dir_path = 'meta/root/' + self._key_prefix
-                name_start = len(dir_path)
-                keys, prefixes = self._store.list_dir(dir_path)
+            dir_path = 'meta/root/' + self._key_prefix
+            name_start = len(dir_path)
+            keys, prefixes = self._store.list_dir(dir_path)
 
-                # yield any groups or arrays
-                sfx = self._metadata_key_suffix
-                for key in keys:
-                    len_suffix = len('.group') + len(sfx)  # same for .array
-                    if key.endswith(('.group' + sfx, '.array' + sfx)):
-                        yield key[name_start:-len_suffix]
+            # yield any groups or arrays
+            sfx = self._metadata_key_suffix
+            for key in keys:
+                len_suffix = len('.group') + len(sfx)  # same for .array
+                if key.endswith(('.group' + sfx, '.array' + sfx)):
+                    yield key[name_start:-len_suffix]
 
-                # also yield any implicit groups
-                for prefix in prefixes:
-                    prefix = prefix.rstrip('/')
-                    # only implicit if there is no .group.sfx file
-                    if not prefix + '.group' + sfx in self._store:
-                        yield prefix[name_start:]
-            else:
-                # omit data/root/ to avoid duplicate listings
-                # any group in data/root/ must have an entry in meta/root/
+            # also yield any implicit groups
+            for prefix in prefixes:
+                prefix = prefix.rstrip('/')
+                # only implicit if there is no .group.sfx file
+                if not prefix + '.group' + sfx in self._store:
+                    yield prefix[name_start:]
 
-                data_dir_path = 'data/root/' + self._key_prefix
-                name_start = len(data_dir_path)
-                keys, data_prefixes = self._store.list_dir(data_dir_path)
-                for data_prefix in data_prefixes:
-                    yield data_prefix[name_start:].rstrip('/')
+            # Note: omit data/root/ to avoid duplicate listings
+            #       any group in data/root/ must have an entry in meta/root/
+            # data_dir_path = 'data/root/' + self._key_prefix
+            # name_start = len(data_dir_path)
+            # keys, data_prefixes = self._store.list_dir(data_dir_path)
+            # for data_prefix in data_prefixes:
+            #     yield data_prefix[name_start:].rstrip('/')
 
     def __len__(self):
         """Number of members."""
