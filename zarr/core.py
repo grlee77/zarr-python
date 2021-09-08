@@ -237,7 +237,6 @@ class Array:
                 # TODO: omit attribute in v3?
                 self._dimension_separator = meta.get('dimension_separator',
                                                      '/')
-                # self._attributes = meta['attributes']  # TODO: remove, already in .attrs?
                 chunk_separator = meta['chunk_grid']['separator']
                 assert chunk_separator == self._dimension_separator
 
@@ -287,7 +286,7 @@ class Array:
                                      separator=self._dimension_separator),
                      data_type=self._dtype,
                      chunk_memory_layout=self._order,
-                     attributes=self._attributes)
+                     attributes=self.attrs.asdict())
             )
         mkey = _prefix_to_array_key(self._store, self._key_prefix)
         self._store[mkey] = self._store._metadata_class.encode_array_metadata(

@@ -809,15 +809,16 @@ class StoreV3Tests(StoreTests):
         mkey = 'meta/root/' + path + '.array.json'
         assert mkey in store
         meta = store._metadata_class.decode_array_metadata(store[mkey])
-        assert ZARR_FORMAT_v3 == meta['zarr_format']  # TODO: already stored at the heirarchy level should we also keep it in the .array.json?
+        # TODO: zarr_format already stored at the heirarchy level should we
+        #       also keep it in the .array.json?
+        assert ZARR_FORMAT_v3 == meta['zarr_format']
         assert (1000,) == meta['shape']
         assert (100,) == meta['chunk_grid']['chunk_shape']
         assert np.dtype(None) == meta['data_type']
         assert default_compressor.get_config() == meta['compressor']
         assert meta['fill_value'] is None
         # Missing MUST be assumed to be "/"
-        # TODO
-        # assert meta.get('dimension_separator', "/") is want_dim_sep
+        assert meta.get('dimension_separator', "/") is want_dim_sep
         assert meta['chunk_grid']['separator'] is want_dim_sep
 
 
@@ -877,8 +878,7 @@ class StoreV3Tests(StoreTests):
         store.close()
 
     def test_init_array_path(self):
-        # TODO: raise error if path starts with '/'
-        path = 'foo/bar'  # TODO: have to specify meta/root/ here?
+        path = 'foo/bar'
         store = self.create_store()
         init_array(store, shape=1000, chunks=100, path=path)
 
@@ -897,7 +897,7 @@ class StoreV3Tests(StoreTests):
 
     def _test_init_array_overwrite_path(self, order):
         # setup
-        path = 'foo/bar'  # TODO: have to specify meta/root/ here?
+        path = 'foo/bar'
         store = self.create_store()
         meta = dict(shape=(2000,),
                     chunk_grid=dict(type='regular',
@@ -980,7 +980,6 @@ class StoreV3Tests(StoreTests):
                  chunk_memory_layout=order)
         )
 
-        # TODO: specify data/root/ as part of the key here?
         chunk_store['data/root/arr1/0'] = b'aaa'
         chunk_store['data/root/arr1/1'] = b'bbb'
 
@@ -1022,8 +1021,6 @@ class StoreV3Tests(StoreTests):
 
         store.close()
 
-    # TODO: work on init_group
-    # TODO: verify that init_array makes a corresponding data directory
     def test_init_group(self):
         store = self.create_store()
         path = "meta/root/foo"
@@ -1044,7 +1041,7 @@ class StoreV3Tests(StoreTests):
 
     def _test_init_group_overwrite_path(self, order):
         # setup
-        path = 'foo/bar'  # TODO: make sure group path doesn't start with /
+        path = 'foo/bar'
         store = self.create_store()
         meta = dict(
             shape=(2000,),
@@ -1307,7 +1304,8 @@ class TestDirectoryStore(StoreTests):
 class TestDirectoryStoreV3(TestDirectoryStore, StoreV3Tests):
 
     def create_store(self, normalize_keys=False, **kwargs):
-        skip_if_nested_chunks(**kwargs)  # TODO: remove this skip for v3
+        # For v3, don't have to skip if nested.
+        # skip_if_nested_chunks(**kwargs)
 
         path = tempfile.mkdtemp()
         atexit.register(atexit_rmtree, path)
