@@ -15,7 +15,7 @@ from zarr.hierarchy import Group
 from zarr.storage import (DirectoryStore, KVStore, atexit_rmtree, init_array,
                           init_group)
 from zarr.sync import ProcessSynchronizer, ThreadSynchronizer
-from zarr.tests.test_attrs import TestAttributes
+from zarr.tests.test_attrs import TestAttributes, zarr_version
 from zarr.tests.test_core import TestArray
 from zarr.tests.test_hierarchy import TestGroup
 

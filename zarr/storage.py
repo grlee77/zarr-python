@@ -110,7 +110,9 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
             return True
         # for v3, need to also handle implicit groups
         sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
-        implicit_prefix = key.replace('.group' + sfx, '/')
+        implicit_prefix = key.replace('.group' + sfx, '')
+        if not implicit_prefix.endswith('/'):
+            implicit_prefix += '/'
         if store.list_prefix(implicit_prefix):
             return True
         return False

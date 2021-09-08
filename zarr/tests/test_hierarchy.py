@@ -464,8 +464,7 @@ class TestGroup(unittest.TestCase):
                 d = getattr(g, method_name)('foo/bar', shape=400, chunks=40,
                                             overwrite=True)
                 assert (400,) == d.shape
-                # TODO: handle implicit group for v3?
-                # if g._version == 2:
+                # works with implicit group for v3?
                 assert isinstance(g['foo'], Group)
 
                 g.store.close()
@@ -476,49 +475,50 @@ class TestGroup(unittest.TestCase):
         # setup
         g1 = self.create_group()
         g2 = g1.create_group('foo/bar')
-        d1 = g2.create_dataset('/a/b/c', shape=1000, chunks=100)
+        if g1._version == 2:
+            d1 = g2.create_dataset('/a/b/c', shape=1000, chunks=100)
+        else:
+            # v3: cannot create a dataset at the root by starting with /
+            #     instead, need to create the dataset on g1 directly
+            d1 = g1.create_dataset('a/b/c', shape=1000, chunks=100)
         d1[:] = np.arange(1000)
         d2 = g1.create_dataset('foo/baz', shape=3000, chunks=300)
         d2[:] = np.arange(3000)
 
-        if g1._version == 3:
-            pytest.skip("TODO: fix for V3")
+        #if g1._version == 3:
+        #    pytest.skip("TODO: fix for V3")
 
         # test __getitem__
-        if g1._version == 2:
-            # TODO: handle implicit group for v3 spec
-            assert isinstance(g1['foo'], Group)
-            assert isinstance(g1['foo']['bar'], Group)
+        assert isinstance(g1['foo'], Group)
+        assert isinstance(g1['foo']['bar'], Group)
         assert isinstance(g1['foo/bar'], Group)
         if g1._version == 2:
             assert isinstance(g1['/foo/bar/'], Group)
+        else:
+            # start or end with / raises KeyError
+            # TODO: should we fix allow stripping of these on v3?
+            with pytest.raises(KeyError):
+                assert isinstance(g1['/foo/bar/'], Group)
         assert isinstance(g1['foo/baz'], Array)
         assert g2 == g1['foo/bar']
-        if g1._version == 2:
-            # TODO: handle implicit group for v3 spec
-            assert g1['foo']['bar'] == g1['foo/bar']
+        assert g1['foo']['bar'] == g1['foo/bar']
         assert d2 == g1['foo/baz']
         assert_array_equal(d2[:], g1['foo/baz'])
 
-        if g1._version == 2:
-            # TODO: handle implicit group for v3 spec
-            # these will be group/a, group/a/b, etc. in v3 since path='group'
-            assert isinstance(g1['a'], Group)
-            assert isinstance(g1['a']['b'], Group)
-            assert isinstance(g1['a/b'], Group)
-            assert isinstance(g1['a']['b']['c'], Array)
-            assert isinstance(g1['a/b/c'], Array)
-            assert d1 == g1['a/b/c']
-            assert g1['a']['b']['c'] == g1['a/b/c']
-            assert_array_equal(d1[:], g1['a/b/c'][:])
+        assert isinstance(g1['a'], Group)
+        assert isinstance(g1['a']['b'], Group)
+        assert isinstance(g1['a/b'], Group)
+        assert isinstance(g1['a']['b']['c'], Array)
+        assert isinstance(g1['a/b/c'], Array)
+        assert d1 == g1['a/b/c']
+        assert g1['a']['b']['c'] == g1['a/b/c']
+        assert_array_equal(d1[:], g1['a/b/c'][:])
 
         # test __contains__
         assert 'foo' in g1
         assert 'foo/bar' in g1
         assert 'foo/baz' in g1
-        if g1._version == 2:
-            # TODO: handle implicit group for v3 spec
-            assert 'bar' in g1['foo']
+        assert 'bar' in g1['foo']
         assert 'a' in g1
         assert 'a/b' in g1
         assert 'a/b/c' in g1
@@ -537,20 +537,25 @@ class TestGroup(unittest.TestCase):
 
         # test __len__
         assert 2 == len(g1)
-        if g1._version == 2:
-            # TODO: handle implicit group for v3 spec
-            assert 2 == len(g1['foo'])
+        assert 2 == len(g1['foo'])
         assert 0 == len(g1['foo/bar'])
         assert 1 == len(g1['a'])
         assert 1 == len(g1['a/b'])
 
         # test __iter__, keys()
-        # currently assumes sorted by key
 
-        assert ['a', 'foo'] == list(g1)
-        assert ['a', 'foo'] == list(g1.keys())
-        assert ['bar', 'baz'] == list(g1['foo'])
-        assert ['bar', 'baz'] == list(g1['foo'].keys())
+        if g1._version == 2:
+            # currently assumes sorted by key
+            assert ['a', 'foo'] == list(g1)
+            assert ['a', 'foo'] == list(g1.keys())
+            assert ['bar', 'baz'] == list(g1['foo'])
+            assert ['bar', 'baz'] == list(g1['foo'].keys())
+        else:
+            # v3 is not necessarily sorted by key
+            assert ['a', 'foo'] == sorted(list(g1))
+            assert ['a', 'foo'] == sorted(list(g1.keys()))
+            assert ['bar', 'baz'] == sorted(list(g1['foo']))
+            assert ['bar', 'baz'] == sorted(list(g1['foo'].keys()))
         assert [] == sorted(g1['foo/bar'])
         assert [] == sorted(g1['foo/bar'].keys())
 
@@ -559,6 +564,9 @@ class TestGroup(unittest.TestCase):
 
         items = list(g1.items())
         values = list(g1.values())
+        if g1._version == 3:
+            # v3 are not automatically sorted by key
+            items, values = zip(*sorted(zip(items, values), key=lambda x:x[0]))
         assert 'a' == items[0][0]
         assert g1['a'] == items[0][1]
         assert g1['a'] == values[0]
@@ -568,6 +576,9 @@ class TestGroup(unittest.TestCase):
 
         items = list(g1['foo'].items())
         values = list(g1['foo'].values())
+        if g1._version == 3:
+            # v3 are not automatically sorted by key
+            items, values = zip(*sorted(zip(items, values), key=lambda x:x[0]))
         assert 'bar' == items[0][0]
         assert g1['foo']['bar'] == items[0][1]
         assert g1['foo']['bar'] == values[0]
@@ -576,11 +587,16 @@ class TestGroup(unittest.TestCase):
         assert g1['foo']['baz'] == values[1]
 
         # test array_keys(), arrays(), group_keys(), groups()
-        # currently assumes sorted by key
 
-        assert ['a', 'foo'] == list(g1.group_keys())
         groups = list(g1.groups())
         arrays = list(g1.arrays())
+        if g1._version == 2:
+            # currently assumes sorted by key
+            assert ['a', 'foo'] == list(g1.group_keys())
+        else:
+            assert ['a', 'foo'] == sorted(list(g1.group_keys()))
+            groups = sorted(groups)
+            arrays = sorted(arrays)
         assert 'a' == groups[0][0]
         assert g1['a'] == groups[0][1]
         assert 'foo' == groups[1][0]
@@ -592,6 +608,9 @@ class TestGroup(unittest.TestCase):
         assert ['baz'] == list(g1['foo'].array_keys())
         groups = list(g1['foo'].groups())
         arrays = list(g1['foo'].arrays())
+        if g1._version == 3:
+            groups = sorted(groups)
+            arrays = sorted(arrays)
         assert 'bar' == groups[0][0]
         assert g1['foo']['bar'] == groups[0][1]
         assert 'baz' == arrays[0][0]
@@ -612,21 +631,27 @@ class TestGroup(unittest.TestCase):
 
         del items[:]
         g1.visitvalues(visitor2)
-        assert [
+        expected_items = [
             "a",
             "a/b",
             "a/b/c",
             "foo",
             "foo/bar",
             "foo/baz",
-        ] == items
+        ]
+        if g1._version == 3:
+            expected_items = [g1.path + '/' + i for i in expected_items]
+        assert expected_items == items
 
         del items[:]
         g1["foo"].visitvalues(visitor2)
-        assert [
+        expected_items = [
             "foo/bar",
             "foo/baz",
-        ] == items
+        ]
+        if g1._version == 3:
+            expected_items = [g1.path + '/' + i for i in expected_items]
+        assert expected_items == items
 
         del items[:]
         g1.visit(visitor3)
@@ -702,6 +727,9 @@ class TestGroup(unittest.TestCase):
         # noinspection PyUnusedLocal
         def visitor1(val, *args):
             name = getattr(val, "path", val)
+            if name.startswith('group/'):
+                # strip the group path for v3
+                name = name[6:]
             if name == "a/b/c":
                 return True
 

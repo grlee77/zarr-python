@@ -165,6 +165,8 @@ class Group(MutableMapping):
                 raise GroupNotFoundError(path)
             else:
                 implicit_prefix = 'meta/root/' + self._key_prefix
+                if not implicit_prefix.endswith('/'):
+                    implicit_prefix += '/'
                 if self._store.list_prefix(implicit_prefix):
                     # implicit group does not have any metadata
                     self._meta = None
@@ -295,6 +297,7 @@ class Group(MutableMapping):
             # also yield any implicit groups
             for prefix in prefixes:
                 prefix = prefix.rstrip('/')
+                print(f"\n\tprefix={prefix}")
                 # only implicit if there is no .group.sfx file
                 if not prefix + '.group' + sfx in self._store:
                     yield prefix[name_start:]
@@ -494,10 +497,25 @@ class Group(MutableMapping):
         ['bar', 'foo']
 
         """
-        for key in sorted(listdir(self._store, self._path)):
-            path = self._key_prefix + key
-            if contains_group(self._store, path):
-                yield key
+        if self._version == 2:
+            dir_name = self._path
+            for key in sorted(listdir(self._store, dir_name)):
+                path = self._key_prefix + key
+                if contains_group(self._store, path):
+                    yield key
+        else:
+            dir_name = 'meta/root/' + self._path
+            sfx = _get_hierarchy_metadata(self._store)['metadata_key_suffix']
+            group_sfx = '.group' + sfx
+            for key in sorted(listdir(self._store, dir_name)):
+                if key.endswith(group_sfx):
+                    key = key[:-len(group_sfx)]
+                path = self._key_prefix + key
+                if path.endswith(".array" + sfx):
+                    # skip array keys
+                    continue
+                if contains_group(self._store, path, explicit_only=False):
+                    yield key
 
     def groups(self):
         """Return an iterator over (name, value) pairs for groups only.
@@ -516,22 +534,40 @@ class Group(MutableMapping):
         foo <class 'zarr.hierarchy.Group'>
 
         """
-        for key in sorted(listdir(self._store, self._path)):
-            path = self._key_prefix + key
-            store_version = getattr(self._store, '_store_version', 2)
-            if store_version == 3:
-                _path = path[9:-1]
-            else:
-                _path = path
-            if contains_group(self._store, path):
-                yield key, Group(
-                    self._store,
-                    path=_path,
-                    read_only=self._read_only,
-                    chunk_store=self._chunk_store,
-                    cache_attrs=self.attrs.cache,
-                    synchronizer=self._synchronizer,
-                    zarr_version=self._version)
+        if self._version == 2:
+            dir_name = self._path
+            for key in sorted(listdir(self._store, dir_name)):
+                path = self._key_prefix + key
+                if contains_group(self._store, path, explicit_only=False):
+                    yield key, Group(
+                        self._store,
+                        path=path,
+                        read_only=self._read_only,
+                        chunk_store=self._chunk_store,
+                        cache_attrs=self.attrs.cache,
+                        synchronizer=self._synchronizer,
+                        zarr_version=self._version)
+
+        else:
+            dir_name = 'meta/root/' + self._path
+            sfx = _get_hierarchy_metadata(self._store)['metadata_key_suffix']
+            group_sfx = '.group' + sfx
+            for key in sorted(listdir(self._store, dir_name)):
+                if key.endswith(group_sfx):
+                    key = key[:-len(group_sfx)]
+                path = self._key_prefix + key
+                if path.endswith(".array" + sfx):
+                    # skip array keys
+                    continue
+                if contains_group(self._store, path, explicit_only=False):
+                    yield key, Group(
+                        self._store,
+                        path=path,
+                        read_only=self._read_only,
+                        chunk_store=self._chunk_store,
+                        cache_attrs=self.attrs.cache,
+                        synchronizer=self._synchronizer,
+                        zarr_version=self._version)
 
     def array_keys(self, recurse=False):
         """Return an iterator over member names for arrays only.
@@ -588,11 +624,11 @@ class Group(MutableMapping):
                                 recurse=recurse)
 
     def _array_iter(self, keys_only, method, recurse):
-        if True: # self._version in 2:
-            # 1 / 0
-            for key in sorted(listdir(self._store, self._path)):
+        if self._version == 2:
+            dir_name = self._path
+            for key in sorted(listdir(self._store, dir_name)):
                 path = self._key_prefix + key
-                assert not path.startswith("/meta")
+                assert not path.startswith("meta")
                 if contains_array(self._store, path):
                     _key = key.rstrip("/")
                     yield _key if keys_only else (_key, self[key])
@@ -601,7 +637,25 @@ class Group(MutableMapping):
                     for i in getattr(group, method)(recurse=recurse):
                         yield i
         else:
-            pass
+            dir_name = 'meta/root/' + self._path
+            sfx = _get_hierarchy_metadata(self._store)['metadata_key_suffix']
+            array_sfx = '.array' + sfx
+            for key in sorted(listdir(self._store, dir_name)):
+                if key.endswith(array_sfx):
+                    key = key[:-len(array_sfx)]
+                path = self._key_prefix + key
+                assert not path.startswith("meta")
+                if key.endswith('.group' + sfx):
+                    # skip group metadata keys
+                    continue
+                print(f"akey = {key}, path = {path}")
+                if contains_array(self._store, path):
+                    _key = key.rstrip("/")
+                    yield _key if keys_only else (_key, self[key])
+                elif recurse and contains_group(self._store, path):
+                    group = self[key]
+                    for i in getattr(group, method)(recurse=recurse):
+                        yield i
 
     def visitvalues(self, func):
         """Run ``func`` on each object.
@@ -639,6 +693,7 @@ class Group(MutableMapping):
                     yield v
 
         for each_obj in islice(_visit(self), 1, None):
+            print(f"each_obj(values) = {each_obj}")
             value = func(each_obj)
             if value is not None:
                 return value
