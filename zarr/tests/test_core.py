@@ -20,7 +20,7 @@ from pkg_resources import parse_version
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
 from zarr.indexing import BoundsCheckError
-from zarr.meta import json_loads
+from zarr.meta import json_loads, ZARR_V3_ALLOW_OBJECTARRAY, ZARR_V3_ALLOW_STRUCTURED
 from zarr.n5 import N5Store, n5_keywords
 from zarr.storage import (
     ABSStore,
@@ -46,6 +46,8 @@ from zarr.tests.util import abs_container, skip_test_env_var, have_fsspec
 
 
 class TestArray(unittest.TestCase):
+
+    _version = 2
 
     def test_array_init(self):
 
@@ -992,8 +994,14 @@ class TestArray(unittest.TestCase):
                 z.store.close()
 
     def check_structured_array(self, d, fill_values):
+
         for a in (d, d[:0]):
             for fill_value in fill_values:
+                if self._version == 3 and not ZARR_V3_ALLOW_STRUCTURED:
+                    with pytest.raises(ValueError):
+                        self.create_array(shape=a.shape, chunks=2, dtype=a.dtype,
+                                          fill_value=fill_value)
+                    return
                 z = self.create_array(shape=a.shape, chunks=2, dtype=a.dtype, fill_value=fill_value)
                 assert len(a) == len(z)
                 assert a.shape == z.shape
@@ -1112,6 +1120,11 @@ class TestArray(unittest.TestCase):
         with pytest.raises(ValueError):
             self.create_array(shape=10, chunks=3, dtype=object)
 
+        if self._version == 3 and not ZARR_V3_ALLOW_OBJECTARRAY:
+            with pytest.raises(ValueError):
+                self.create_array(shape=10, chunks=3, dtype=object, filters=[MsgPack()])
+            return
+
         # an object_codec is required for object arrays, but allow to be provided via
         # filters to maintain API backwards compatibility
         with pytest.warns(FutureWarning):
@@ -1170,6 +1183,10 @@ class TestArray(unittest.TestCase):
 
         data = np.array(greetings * 1000, dtype=object)
 
+        if self._version == 3 and not ZARR_V3_ALLOW_OBJECTARRAY:
+            with pytest.raises(ValueError):
+                self.create_array(shape=data.shape, dtype=object, object_codec=VLenUTF8())
+            return
         z = self.create_array(shape=data.shape, dtype=object, object_codec=VLenUTF8())
         z[0] = 'foo'
         assert z[0] == 'foo'
@@ -1217,6 +1234,10 @@ class TestArray(unittest.TestCase):
         greetings_bytes = [g.encode('utf8') for g in greetings]
         data = np.array(greetings_bytes * 1000, dtype=object)
 
+        if self._version == 3 and not ZARR_V3_ALLOW_OBJECTARRAY:
+            with pytest.raises(ValueError):
+                self.create_array(shape=data.shape, dtype=object, object_codec=VLenBytes())
+            return
         z = self.create_array(shape=data.shape, dtype=object, object_codec=VLenBytes())
         z[0] = b'foo'
         assert z[0] == b'foo'
@@ -1258,6 +1279,11 @@ class TestArray(unittest.TestCase):
                 assert_array_equal(ev, av)
                 assert av.dtype == item_dtype
 
+        if self._version == 3 and not ZARR_V3_ALLOW_OBJECTARRAY:
+            with pytest.raises(ValueError):
+                self.create_array(shape=data.shape, dtype=object, object_codec=VLenArray('<u4'))
+            return
+
         codecs = VLenArray(int), VLenArray('<u4')
         for codec in codecs:
             z = self.create_array(shape=data.shape, dtype=object, object_codec=codec)
@@ -1280,6 +1306,12 @@ class TestArray(unittest.TestCase):
             z.store.close()
 
     def test_object_arrays_danger(self):
+
+        if self._version == 3 and not ZARR_V3_ALLOW_OBJECTARRAY:
+            with pytest.raises(ValueError):
+                self.create_array(shape=5, chunks=2, dtype=object, fill_value=0,
+                                  object_codec=MsgPack())
+            return
 
         # do something dangerous - manually force an object array with no object codec
         z = self.create_array(shape=5, chunks=2, dtype=object, fill_value=0,
@@ -1324,6 +1356,11 @@ class TestArray(unittest.TestCase):
         structured_dtype = [('c_obj', object), ('c_int', int)]
         a = np.array([(b'aaa', 1),
                       (b'bbb', 2)], dtype=structured_dtype)
+
+        if self._version == 3 and not ZARR_V3_ALLOW_STRUCTURED:
+            with pytest.raises(ValueError):
+                self.create_array(shape=a.shape, dtype=structured_dtype)
+            return
 
         # zarr-array with structured dtype require object codec
         with pytest.raises(ValueError):
@@ -1473,6 +1510,16 @@ class TestArray(unittest.TestCase):
         a.store.close()
 
     def test_structured_with_object(self):
+        if self._version == 3 and not (ZARR_V3_ALLOW_OBJECTARRAY
+                                       and ZARR_V3_ALLOW_STRUCTURED):
+            with pytest.raises(ValueError):
+                self.create_array(fill_value=(0.0, None),
+                                  shape=10,
+                                  chunks=10,
+                                  dtype=[('x', float), ('y', object)],
+                                  object_codec=Pickle())
+            return
+
         a = self.create_array(fill_value=(0.0, None),
                               shape=10,
                               chunks=10,

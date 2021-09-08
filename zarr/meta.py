@@ -25,10 +25,15 @@ _v3_core_type = set(
 )
 _v3_core_type = {"bool", "i1", "u1"} | _v3_core_type
 
-ZARR_V3_ALLOW_COMPLEX = bool(os.environ.get("ZARR_V3_ALLOW_COMPLEX", True))
-ZARR_V3_ALLOW_DATETIME = bool(os.environ.get("ZARR_V3_ALLOW_DATETIME", True))
-ZARR_V3_ALLOW_STRUCTURED = bool(os.environ.get("ZARR_V3_ALLOW_STRUCTURED", True))
-ZARR_V3_ALLOW_OBJECTARRAY = bool(os.environ.get("ZARR_V3_ALLOW_OBJECTARRAY", True))
+ZARR_V3_CORE_DTYPES_ONLY = int(os.environ.get("ZARR_V3_CORE_DTYPES_ONLY", False))
+ZARR_V3_ALLOW_COMPLEX = int(os.environ.get("ZARR_V3_ALLOW_COMPLEX",
+                                           not ZARR_V3_CORE_DTYPES_ONLY))
+ZARR_V3_ALLOW_DATETIME = int(os.environ.get("ZARR_V3_ALLOW_DATETIME",
+                                            not ZARR_V3_CORE_DTYPES_ONLY))
+ZARR_V3_ALLOW_STRUCTURED = int(os.environ.get("ZARR_V3_ALLOW_STRUCTURED",
+                                              not ZARR_V3_CORE_DTYPES_ONLY))
+ZARR_V3_ALLOW_OBJECTARRAY = int(os.environ.get("ZARR_V3_ALLOW_OBJECTARRAY",
+                                               not ZARR_V3_CORE_DTYPES_ONLY))
 
 _default_entry_point_metadata_v3 = {
     'zarr_format': "https://purl.org/zarr/spec/protocol/core/3.0",

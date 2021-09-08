@@ -20,9 +20,7 @@ from pkg_resources import parse_version
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
 from zarr.indexing import BoundsCheckError
-from zarr.meta import (json_loads, ZARR_V3_ALLOW_COMPLEX,
-                       ZARR_V3_ALLOW_DATETIME, ZARR_V3_ALLOW_OBJECTARRAY,
-                       ZARR_V3_ALLOW_STRUCTURED)
+from zarr.meta import json_loads, ZARR_V3_ALLOW_COMPLEX, ZARR_V3_ALLOW_DATETIME
 from zarr.n5 import N5Store, n5_keywords
 from zarr.storage import (
     # ABSStoreV3,
@@ -48,6 +46,8 @@ from zarr.util import buffer_size
 # Start with TestArrayWithPathV3 not TestArrayV3 since path must be supplied
 
 class TestArrayWithPathV3(TestArrayWithPath):
+
+    _version = 3
 
     @staticmethod
     def create_array(array_path='arr1', read_only=False, **kwargs):
@@ -166,33 +166,33 @@ class TestArrayWithPathV3(TestArrayWithPath):
         # complex
         for dtype in 'c8', 'c16':
             if not ZARR_V3_ALLOW_COMPLEX:
-                with pytest.raises(AssertionError):
-                    z = self.create_array(shape=10, chunks=3, dtype=dtype)
-            else:
-                z = self.create_array(shape=10, chunks=3, dtype=dtype)
-                assert z.dtype == np.dtype(dtype)
-                a = np.linspace(0, 1, z.shape[0], dtype=dtype)
-                a -= 1j * a
-                z[:] = a
-                assert_array_almost_equal(a, z[:])
-                z.store.close()
+                with pytest.raises(ValueError):
+                    self.create_array(shape=10, chunks=3, dtype=dtype)
+                return
+            z = self.create_array(shape=10, chunks=3, dtype=dtype)
+            assert z.dtype == np.dtype(dtype)
+            a = np.linspace(0, 1, z.shape[0], dtype=dtype)
+            a -= 1j * a
+            z[:] = a
+            assert_array_almost_equal(a, z[:])
+            z.store.close()
 
         # datetime, timedelta
         for base_type in 'Mm':
             for resolution in 'D', 'us', 'ns':
                 dtype = '{}8[{}]'.format(base_type, resolution)
                 if not ZARR_V3_ALLOW_DATETIME:
-                    with pytest.raises(AssertionError):
-                        z = self.create_array(shape=100, dtype=dtype, fill_value=0)
-                else:
-                    z = self.create_array(shape=100, dtype=dtype, fill_value=0)
-                    assert z.dtype == np.dtype(dtype)
-                    a = np.random.randint(np.iinfo('i8').min, np.iinfo('i8').max,
-                                          size=z.shape[0],
-                                          dtype='i8').view(dtype)
-                    z[:] = a
-                    assert_array_equal(a, z[:])
-                    z.store.close()
+                    with pytest.raises(ValueError):
+                        self.create_array(shape=100, dtype=dtype, fill_value=0)
+                    return
+                z = self.create_array(shape=100, dtype=dtype, fill_value=0)
+                assert z.dtype == np.dtype(dtype)
+                a = np.random.randint(np.iinfo('i8').min, np.iinfo('i8').max,
+                                      size=z.shape[0],
+                                      dtype='i8').view(dtype)
+                z[:] = a
+                assert_array_equal(a, z[:])
+                z.store.close()
 
         # check that datetime generic units are not allowed
         with pytest.raises(ValueError):
