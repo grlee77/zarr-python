@@ -248,9 +248,15 @@ class Array:
                 self._compressor = get_codec(config)
 
             # setup filters
-            filters = meta.get('filters', [])
+            if self._version == 2:
+                filters = meta.get('filters', [])
+            else:
+                # TODO: storing filters under attributes for now since the v3
+                #       array metadata does not have a 'filters' attribute.
+                filters = meta['attributes'].get('filters', [])
             if filters:
                 filters = [get_codec(config) for config in filters]
+
             self._filters = filters
 
     def _refresh_metadata(self):

@@ -593,13 +593,17 @@ def _init_array_metadata(
     else:
         if dimension_separator is None:
             dimension_separator = "/"
+        if filters_config:
+            attributes = {'filters': filters_config}
+        else:
+            attributes = {}
         meta.update(
             dict(chunk_grid=dict(type="regular",
                                  chunk_shape=chunks,
                                  separator=dimension_separator),
                  chunk_memory_layout=order,
                  data_type=dtype,
-                 attributes={})
+                 attributes=attributes)
         )
 
 

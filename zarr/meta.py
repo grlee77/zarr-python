@@ -2,6 +2,8 @@
 import base64
 import itertools
 import json
+import os
+
 from collections.abc import Mapping
 from typing import Any, Union
 from typing import Mapping as MappingType
@@ -23,6 +25,10 @@ _v3_core_type = set(
 )
 _v3_core_type = {"bool", "i1", "u1"} | _v3_core_type
 
+ZARR_V3_ALLOW_COMPLEX = bool(os.environ.get("ZARR_V3_ALLOW_COMPLEX", True))
+ZARR_V3_ALLOW_DATETIME = bool(os.environ.get("ZARR_V3_ALLOW_DATETIME", True))
+ZARR_V3_ALLOW_STRUCTURED = bool(os.environ.get("ZARR_V3_ALLOW_STRUCTURED", True))
+ZARR_V3_ALLOW_OBJECTARRAY = bool(os.environ.get("ZARR_V3_ALLOW_OBJECTARRAY", True))
 
 _default_entry_point_metadata_v3 = {
     'zarr_format': "https://purl.org/zarr/spec/protocol/core/3.0",
@@ -244,8 +250,25 @@ class Metadata3(Metadata2):
 
     @classmethod
     def decode_dtype(cls, d):
-        assert d in _v3_core_type
-        return np.dtype(d)
+        d = cls._decode_dtype_descr(d)
+        dtype = np.dtype(d)
+        if dtype.kind == 'c':
+            if not ZARR_V3_ALLOW_COMPLEX:
+                raise ValueError("complex-valued arrays not supported")
+        elif dtype.kind in 'mM':
+            if not ZARR_V3_ALLOW_DATETIME:
+                raise ValueError(
+                    "datetime64 and timedelta64 arrays not supported"
+                )
+        elif dtype.kind == 'O':
+            if not ZARR_V3_ALLOW_OBJECTARRAY:
+                raise ValueError("object arrays not supported")
+        elif dtype.kind == 'V':
+            if not ZARR_V3_ALLOW_STRUCTURED:
+                raise ValueError("structured arrays not supported")
+        else:
+            assert d in _v3_core_type
+        return dtype
 
     @classmethod
     def encode_dtype(cls, d):
@@ -256,8 +279,32 @@ class Metadata3(Metadata2):
             return "u1"
         elif s == "|i1":
             return "i1"
-        assert s in _v3_core_type
+        dtype = np.dtype(d)
+        if dtype.kind == "c":
+            if not ZARR_V3_ALLOW_COMPLEX:
+                raise ValueError(
+                    "complex-valued arrays not part of the base v3 spec"
+                )
+        elif dtype.kind in "mM":
+            if not ZARR_V3_ALLOW_DATETIME:
+                raise ValueError(
+                    "datetime64 and timedelta64 not part of the base v3 "
+                    "spec"
+                )
+        elif dtype.kind == "O":
+            if not ZARR_V3_ALLOW_OBJECTARRAY:
+                raise ValueError(
+                    "object dtypes are not part of the base v3 spec"
+                )
+        elif dtype.kind == "V":
+            if not ZARR_V3_ALLOW_STRUCTURED:
+                raise ValueError(
+                    "structured arrays are not part of the base v3 spec"
+                )
+        else:
+            assert s in _v3_core_type
         return s
+
 
     @classmethod
     def decode_group_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
@@ -327,7 +374,7 @@ class Metadata3(Metadata2):
             dtype = cls.decode_dtype(meta["data_type"])
             if dtype.hasobject:
                 import numcodecs
-                object_codec = numcodecs.get_codec(meta['filters'][0])
+                object_codec = numcodecs.get_codec(meta['attributes']['filters'][0])
             else:
                 object_codec = None
             fill_value = cls.decode_fill_value(meta["fill_value"], dtype, object_codec)
@@ -364,7 +411,7 @@ class Metadata3(Metadata2):
         dimension_separator = meta.get("dimension_separator")
         if dtype.hasobject:
             import numcodecs
-            object_codec = numcodecs.get_codec(meta['filters'][0])
+            object_codec = numcodecs.get_codec(meta['attributes']['filters'][0])
         else:
             object_codec = None
         meta = dict(

@@ -20,7 +20,9 @@ from pkg_resources import parse_version
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
 from zarr.indexing import BoundsCheckError
-from zarr.meta import json_loads
+from zarr.meta import (json_loads, ZARR_V3_ALLOW_COMPLEX,
+                       ZARR_V3_ALLOW_DATETIME, ZARR_V3_ALLOW_OBJECTARRAY,
+                       ZARR_V3_ALLOW_STRUCTURED)
 from zarr.n5 import N5Store, n5_keywords
 from zarr.storage import (
     # ABSStoreV3,
@@ -163,28 +165,34 @@ class TestArrayWithPathV3(TestArrayWithPath):
 
         # complex
         for dtype in 'c8', 'c16':
-            with pytest.raises(AssertionError):
+            if not ZARR_V3_ALLOW_COMPLEX:
+                with pytest.raises(AssertionError):
+                    z = self.create_array(shape=10, chunks=3, dtype=dtype)
+            else:
                 z = self.create_array(shape=10, chunks=3, dtype=dtype)
-            # assert z.dtype == np.dtype(dtype)
-            # a = np.linspace(0, 1, z.shape[0], dtype=dtype)
-            # a -= 1j * a
-            # z[:] = a
-            # assert_array_almost_equal(a, z[:])
-            # z.store.close()
+                assert z.dtype == np.dtype(dtype)
+                a = np.linspace(0, 1, z.shape[0], dtype=dtype)
+                a -= 1j * a
+                z[:] = a
+                assert_array_almost_equal(a, z[:])
+                z.store.close()
 
         # datetime, timedelta
         for base_type in 'Mm':
             for resolution in 'D', 'us', 'ns':
                 dtype = '{}8[{}]'.format(base_type, resolution)
-                with pytest.raises(AssertionError):
+                if not ZARR_V3_ALLOW_DATETIME:
+                    with pytest.raises(AssertionError):
+                        z = self.create_array(shape=100, dtype=dtype, fill_value=0)
+                else:
                     z = self.create_array(shape=100, dtype=dtype, fill_value=0)
-                # assert z.dtype == np.dtype(dtype)
-                # a = np.random.randint(np.iinfo('i8').min, np.iinfo('i8').max,
-                #                       size=z.shape[0],
-                #                       dtype='i8').view(dtype)
-                # z[:] = a
-                # assert_array_equal(a, z[:])
-                # z.store.close()
+                    assert z.dtype == np.dtype(dtype)
+                    a = np.random.randint(np.iinfo('i8').min, np.iinfo('i8').max,
+                                          size=z.shape[0],
+                                          dtype='i8').view(dtype)
+                    z[:] = a
+                    assert_array_equal(a, z[:])
+                    z.store.close()
 
         # check that datetime generic units are not allowed
         with pytest.raises(ValueError):
@@ -248,41 +256,6 @@ class TestArrayWithPathV3(TestArrayWithPath):
         assert 10 == z.nchunks_initialized
 
         z.store.close()
-
-    def test_object_arrays(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_object_arrays_vlen_text(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_object_arrays_vlen_bytes(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_object_arrays_vlen_array(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_object_arrays_danger(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    @unittest.skipIf(parse_version(np.__version__) < parse_version('1.14.0'),
-                     "unsupported numpy version")
-    def test_structured_array_contain_object(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_object_codec_warnings(self):
-        pytest.skip("v3 implementation doesn't support object arrays")
-
-    def test_structured_array(self):
-        pytest.skip("v3 implementation doesn't support structured arrays")
-
-    def test_structured_array_nested(self):
-        pytest.skip("v3 implementation doesn't support structured arrays")
-
-    def test_structured_array_subshapes(self):
-        pytest.skip("v3 implementation doesn't support structured arrays")
-
-    def test_structured_with_object(self):
-        pytest.skip("v3 implementation doesn't support structured arrays")
 
 
 class TestArrayWithChunkStoreV3(TestArrayWithPathV3):
