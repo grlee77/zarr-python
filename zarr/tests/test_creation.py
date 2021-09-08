@@ -187,8 +187,6 @@ def test_full_additional_dtypes(zarr_version):
         full(100, chunks=10, fill_value=v, dtype='U3')
 
 
-# TODO: enable zarr_version in open_gruop
-
 @pytest.mark.parametrize('zarr_version', [None, 2, 3])
 def test_open_array(zarr_version):
 

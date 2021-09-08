@@ -404,8 +404,8 @@ class TestCopyStore(unittest.TestCase):
         with pytest.raises(ValueError):
             copy_store(source, dest, if_exists='foobar')
 
-# TODO: need larger test case changes for a store with actual arrays and groups
-#       so that expected data/root/ and meta/root/ paths are present
+# TODO: TestCopyStoreV3 with actual arrays and groups so that expected
+#       data/root/ and meta/root/ paths are present
 # class TestCopyStoreV3(TestCopyStore):
 
 #     def setUp(self):
@@ -539,7 +539,7 @@ def test_copy_all_v3():
     """
     https://github.com/zarr-developers/zarr-python/issues/269
 
-    copy_all used to not copy attributes as `.keys()` does not return hidden `.zattrs`.
+    copy_all used to not copy attributes as `.keys()`
 
     """
     original_group = zarr.group(store=MemoryStoreV3(), path='group1', overwrite=True)
@@ -723,25 +723,25 @@ class TestCopy:
         copy(source['foo'], dest)
         check_copied_group(source['foo'], dest['foo'])
 
-    # def test_copy_group_exists_array(self, source, dest):
-    #     # copy group, dest array in the way
-    #     dest.create_dataset('foo/bar', shape=(10,))
+    def test_copy_group_exists_array(self, source, dest):
+        # copy group, dest array in the way
+        dest.create_dataset('foo/bar', shape=(10,))
 
-    #     # raise
-    #     with pytest.raises(CopyError):
-    #         copy(source['foo'], dest)
-    #     assert dest['foo/bar'].shape == (10,)
-    #     with pytest.raises(CopyError):
-    #         copy(source['foo'], dest, if_exists='raise')
-    #     assert dest['foo/bar'].shape == (10,)
+        # raise
+        with pytest.raises(CopyError):
+            copy(source['foo'], dest)
+        assert dest['foo/bar'].shape == (10,)
+        with pytest.raises(CopyError):
+            copy(source['foo'], dest, if_exists='raise')
+        assert dest['foo/bar'].shape == (10,)
 
-    #     # skip
-    #     copy(source['foo'], dest, if_exists='skip')
-    #     assert dest['foo/bar'].shape == (10,)
+        # skip
+        copy(source['foo'], dest, if_exists='skip')
+        assert dest['foo/bar'].shape == (10,)
 
-    #     # replace
-    #     copy(source['foo'], dest, if_exists='replace')
-    #     check_copied_group(source['foo'], dest['foo'])
+        # replace
+        copy(source['foo'], dest, if_exists='replace')
+        check_copied_group(source['foo'], dest['foo'])
 
     def test_copy_group_dry_run(self, source, dest):
         # dry run, empty destination
@@ -806,9 +806,9 @@ class TestCopyV3(TestCopy):
     def source(self, request, tmpdir):
         def prep_source(source):
             foo = source.create_group('foo')
-            # foo.attrs['experiment'] = 'weird science'
+            foo.attrs['experiment'] = 'weird science'
             baz = foo.create_dataset('bar/baz', data=np.arange(100), chunks=(50,))
-            # baz.attrs['units'] = 'metres'
+            baz.attrs['units'] = 'metres'
             if request.param:
                 extra_kws = dict(compression='gzip', compression_opts=3, fillvalue=84,
                                  shuffle=True, fletcher32=True)
@@ -857,29 +857,9 @@ class TestCopyV3(TestCopy):
             with pytest.raises(TypeError):
                 copy(source, dest)
         else:
-            # name will be inferred from source.name
+            # For v3, dest.name will be inferred from source.name
             copy(source, dest)
             check_copied_group(source, dest[source.name.lstrip('/')])
 
         copy(source, dest, name='root')
         check_copied_group(source, dest['root'])
-
-    def test_copy_group_exists_array(self, source, dest):
-        # copy group, dest array in the way
-        dest.create_dataset('foo/bar', shape=(10,))
-
-        # raise
-        with pytest.raises(CopyError):
-            copy(source['foo'], dest)
-        assert dest['foo/bar'].shape == (10,)
-        with pytest.raises(CopyError):
-            copy(source['foo'], dest, if_exists='raise')
-        assert dest['foo/bar'].shape == (10,)
-
-        # skip
-        copy(source['foo'], dest, if_exists='skip')
-        assert dest['foo/bar'].shape == (10,)
-
-        # replace
-        copy(source['foo'], dest, if_exists='replace')
-        check_copied_group(source['foo'], dest['foo'])

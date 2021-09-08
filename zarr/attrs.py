@@ -137,8 +137,6 @@ class Attributes(MutableMapping):
             self._write_op(self._put_nosync, dict(attributes=d))
 
     def _put_nosync(self, d):
-        # if self._version == 3:
-        #     raise ValueError('attributes are stored on group/arrays in v3.')
         self.store[self.key] = json_dumps(d)
         if self.cache:
             if self._version == 2:

@@ -960,8 +960,7 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
                 n_bytes_copied += ds.size * ds.dtype.itemsize
 
                 # copy attributes
-                if zarr_version == 2 and not without_attrs:
-                    # TODO: attributes for v3
+                if not without_attrs:
                     ds.attrs.update(source.attrs)
 
             n_copied += 1
@@ -1001,8 +1000,7 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
                 grp = dest.require_group(name)
 
                 # copy attributes
-                if zarr_version == 2 and not without_attrs:
-                    # TODO: attributes for v3
+                if not without_attrs:
                     grp.attrs.update(source.attrs)
 
             else:

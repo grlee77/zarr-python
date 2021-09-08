@@ -76,7 +76,7 @@ class TestArrayWithPathV3(TestArrayWithPath):
         assert '/' + path == a.name  # TODO: should this include meta/root?
         assert 'bar' == a.basename
         assert store is a.store
-        assert "07c3e9632573a43122ad0c39a84a96a9fba745c7" == a.hexdigest()
+        assert "fde0ede82971732ad9fda9c042a1ce3cc955edc6" == a.hexdigest()
 
         # store not initialized
         store = KVStoreV3(dict())
@@ -194,11 +194,11 @@ class TestArrayWithPathV3(TestArrayWithPath):
 
     def expected(self):
         return [
-            "3d5a6d5a8823f202fa2e73740b595a47049a23ae",
-            "981063a32beecd9a60e650c709c73db1541807e7",
-            "70aeab07e955e14a35b46a22f1a7ecd022b9b6db",
-            "044ff1846d7955938cb27b49c9dbfd01bbfd0230",
-            "6af606761d1c32f684a7fac5e18f3def8d3d90b6",  # attributes case
+            "f8b6f297c56e42cb086f3b020327402801f0de0f",
+            "36c94c6d0933f3e0ced633047bffb7bd8c4c99ec",
+            "02ed16cf33b402cd9b84c2a33db7ffcd2e678a17",
+            "d9f57d9a66b7bd249f5dd3ccab56475b53e203e7",
+            "de74d165181c090743246748f154394186db378a",
         ]
 
     def test_hexdigest(self):
@@ -302,25 +302,25 @@ class TestArrayWithChunkStoreV3(TestArrayWithPathV3):
     def test_hexdigest(self):
         # Check basic 1-D array
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
-        assert '52ddf79cbfb6a503acf4fb618e76f8bea5e6c46e' == z.hexdigest()
+        assert 'd8c6501914fd9e999a437c304cfe8c8f4a47f3a1' == z.hexdigest()
 
         # Check basic 1-D array with different type
         z = self.create_array(shape=(1050,), chunks=100, dtype='<f4')
-        assert '16116ec0bee1bf39a0789fefb06fad418d59fdad' == z.hexdigest()
+        assert 'b52ac4f6f1982611d9d4b9e32f027603f7076e15' == z.hexdigest()
 
         # Check basic 2-D array
         z = self.create_array(shape=(20, 35,), chunks=10, dtype='<i4')
-        assert '4a75a43a47e5f275696ee01047f87861a954dadd' == z.hexdigest()
+        assert '936b531463d9a7575c5766cb5fe6e9a85598fc4e' == z.hexdigest()
 
         # Check basic 1-D array with some data
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
         z[200:400] = np.arange(200, 400, dtype='i4')
-        assert '91f488d24e356a3ce2c8ff0ff79b8e2fb5449108' == z.hexdigest()
+        assert 'b9fc48400b71f30de731dcd838b49d1bdbe3b21b' == z.hexdigest()
 
         # Check basic 1-D array with attributes
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
         z.attrs['foo'] = 'bar'
-        assert '2aeff821b210cd7e02cc34717804614a59cdf6ca' == z.hexdigest()
+        assert 'dccb51bd549886fb676c255c99f78a437a5b6cd8' == z.hexdigest()
 
     def test_nbytes_stored(self):
 
@@ -385,11 +385,11 @@ class TestArrayWithNestedDirectoryStoreV3(TestArrayWithDirectoryStoreV3):
 
     def expected(self):
         return [
-            "3d5a6d5a8823f202fa2e73740b595a47049a23ae",
-            "981063a32beecd9a60e650c709c73db1541807e7",
-            "70aeab07e955e14a35b46a22f1a7ecd022b9b6db",
-            "044ff1846d7955938cb27b49c9dbfd01bbfd0230",
-            "6af606761d1c32f684a7fac5e18f3def8d3d90b6",
+            "f8b6f297c56e42cb086f3b020327402801f0de0f",
+            "36c94c6d0933f3e0ced633047bffb7bd8c4c99ec",
+            "02ed16cf33b402cd9b84c2a33db7ffcd2e678a17",
+            "d9f57d9a66b7bd249f5dd3ccab56475b53e203e7",
+            "de74d165181c090743246748f154394186db378a",
         ]
 
 
@@ -671,11 +671,11 @@ class TestArrayWithFSStoreV3(TestArrayWithPathV3):
 
     def expected(self):
         return [
-           "52ddf79cbfb6a503acf4fb618e76f8bea5e6c46e",
-           "16116ec0bee1bf39a0789fefb06fad418d59fdad",
-           "4a75a43a47e5f275696ee01047f87861a954dadd",
-           "91f488d24e356a3ce2c8ff0ff79b8e2fb5449108",
-           "2aeff821b210cd7e02cc34717804614a59cdf6ca",
+           "d8c6501914fd9e999a437c304cfe8c8f4a47f3a1",
+           "b52ac4f6f1982611d9d4b9e32f027603f7076e15",
+           "936b531463d9a7575c5766cb5fe6e9a85598fc4e",
+           "b9fc48400b71f30de731dcd838b49d1bdbe3b21b",
+           "dccb51bd549886fb676c255c99f78a437a5b6cd8",
         ]
 
     def test_hexdigest(self):
@@ -804,11 +804,11 @@ class TestArrayWithFSStoreV3Nested(TestArrayWithPathV3):
 
     def expected(self):
         return [
-           "52ddf79cbfb6a503acf4fb618e76f8bea5e6c46e",
-           "16116ec0bee1bf39a0789fefb06fad418d59fdad",
-           "4a75a43a47e5f275696ee01047f87861a954dadd",
-           "91f488d24e356a3ce2c8ff0ff79b8e2fb5449108",
-           "2aeff821b210cd7e02cc34717804614a59cdf6ca",
+           "d8c6501914fd9e999a437c304cfe8c8f4a47f3a1",
+           "b52ac4f6f1982611d9d4b9e32f027603f7076e15",
+           "936b531463d9a7575c5766cb5fe6e9a85598fc4e",
+           "b9fc48400b71f30de731dcd838b49d1bdbe3b21b",
+           "dccb51bd549886fb676c255c99f78a437a5b6cd8",
         ]
 
     def test_hexdigest(self):
@@ -862,11 +862,11 @@ class TestArrayWithFSStoreV3NestedPartialRead(TestArrayWithPathV3):
 
     def expected(self):
         return [
-           "52ddf79cbfb6a503acf4fb618e76f8bea5e6c46e",
-           "16116ec0bee1bf39a0789fefb06fad418d59fdad",
-           "4a75a43a47e5f275696ee01047f87861a954dadd",
-           "91f488d24e356a3ce2c8ff0ff79b8e2fb5449108",
-           "2aeff821b210cd7e02cc34717804614a59cdf6ca",
+           "d8c6501914fd9e999a437c304cfe8c8f4a47f3a1",
+           "b52ac4f6f1982611d9d4b9e32f027603f7076e15",
+           "936b531463d9a7575c5766cb5fe6e9a85598fc4e",
+           "b9fc48400b71f30de731dcd838b49d1bdbe3b21b",
+           "dccb51bd549886fb676c255c99f78a437a5b6cd8",
         ]
 
     def test_hexdigest(self):
