@@ -465,8 +465,8 @@ class TestGroup(unittest.TestCase):
                                             overwrite=True)
                 assert (400,) == d.shape
                 # TODO: handle implicit group for v3?
-                if g._version == 2:
-                    assert isinstance(g['foo'], Group)
+                # if g._version == 2:
+                assert isinstance(g['foo'], Group)
 
                 g.store.close()
         except NotImplementedError:
