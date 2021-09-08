@@ -1019,15 +1019,14 @@ class TestGroupV3(TestGroup, unittest.TestCase):
         else:
             assert chunk_store is g.chunk_store
         assert not g.read_only
+        # different path/name in v3 case
         assert 'group' == g.path
         assert '/group' == g.name
         assert 'group' == g.basename
 
-        # TODO: how to handle Attributes for V3?
-        if False:
-            assert isinstance(g.attrs, Attributes)
-            g.attrs['foo'] = 'bar'
-            assert g.attrs['foo'] == 'bar'
+        assert isinstance(g.attrs, Attributes)
+        g.attrs['foo'] = 'bar'
+        assert g.attrs['foo'] == 'bar'
 
         assert isinstance(g.info, InfoReporter)
         assert isinstance(repr(g.info), str)
