@@ -94,7 +94,6 @@ def contains_array(store: Store, path: Path = None) -> bool:
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_array_key(store, prefix)
-    # print(f"array key={key}")
     return key in store
 
 
@@ -103,7 +102,6 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
     path = normalize_storage_path(path)
     prefix = _path_to_prefix(path)
     key = _prefix_to_group_key(store, prefix)
-    # print(f"group key={key}")
     store_version = getattr(store, '_store_version', 2)
     if store_version == 2 or explicit_only:
         return key in store
@@ -113,7 +111,6 @@ def contains_group(store: Store, path: Path = None, explicit_only=True) -> bool:
         # for v3, need to also handle implicit groups
         sfx = _get_hierarchy_metadata(store)['metadata_key_suffix']
         implicit_prefix = key.replace('.group' + sfx, '/')
-        # print(f"implicit group prefix = {implicit_prefix}")
         if store.list_prefix(implicit_prefix):
             return True
         return False

@@ -4,17 +4,29 @@ import unittest
 import pytest
 
 from zarr.attrs import Attributes
-from zarr.tests.util import CountingDict
+from zarr.storage import KVStoreV3
+from zarr.tests.util import CountingDict, CountingDictV3
 
 
-class TestAttributes(unittest.TestCase):
+@pytest.fixture(params=[2, 3])
+def zarr_version(request):
+    return request.param
+
+
+def _init_store(version):
+    if version == 2:
+        return dict()
+    return KVStoreV3(dict())
+
+
+class TestAttributes():
 
     def init_attributes(self, store, read_only=False, cache=True):
         return Attributes(store, key='attrs', read_only=read_only, cache=cache)
 
-    def test_storage(self):
+    def test_storage(self, zarr_version):
 
-        store = dict()
+        store = _init_store(zarr_version)
         a = Attributes(store=store, key='attrs')
         assert 'foo' not in a
         assert 'bar' not in a
@@ -25,11 +37,14 @@ class TestAttributes(unittest.TestCase):
         assert 'attrs' in store
         assert isinstance(store['attrs'], bytes)
         d = json.loads(str(store['attrs'], 'ascii'))
+        if zarr_version == 3:
+            d = d['attributes']
         assert dict(foo='bar', baz=42) == d
 
-    def test_get_set_del_contains(self):
+    def test_get_set_del_contains(self, zarr_version):
 
-        a = self.init_attributes(dict())
+        store = _init_store(zarr_version)
+        a = self.init_attributes(store)
         assert 'foo' not in a
         a['foo'] = 'bar'
         a['baz'] = 42
@@ -43,9 +58,10 @@ class TestAttributes(unittest.TestCase):
             # noinspection PyStatementEffect
             a['foo']
 
-    def test_update_put(self):
+    def test_update_put(self, zarr_version):
 
-        a = self.init_attributes(dict())
+        store = _init_store(zarr_version)
+        a = self.init_attributes(store)
         assert 'foo' not in a
         assert 'bar' not in a
         assert 'baz' not in a
@@ -60,9 +76,10 @@ class TestAttributes(unittest.TestCase):
         assert a['bar'] == 84
         assert 'baz' not in a
 
-    def test_iterators(self):
+    def test_iterators(self, zarr_version):
 
-        a = self.init_attributes(dict())
+        store = _init_store(zarr_version)
+        a = self.init_attributes(store)
         assert 0 == len(a)
         assert set() == set(a)
         assert set() == set(a.keys())
@@ -78,10 +95,13 @@ class TestAttributes(unittest.TestCase):
         assert {'bar', 42} == set(a.values())
         assert {('foo', 'bar'), ('baz', 42)} == set(a.items())
 
-    def test_read_only(self):
-        store = dict()
+    def test_read_only(self, zarr_version):
+        store = _init_store(zarr_version)
         a = self.init_attributes(store, read_only=True)
-        store['attrs'] = json.dumps(dict(foo='bar', baz=42)).encode('ascii')
+        if zarr_version == 2:
+            store['attrs'] = json.dumps(dict(foo='bar', baz=42)).encode('ascii')
+        else:
+            store['attrs'] = json.dumps(dict(attributes=dict(foo='bar', baz=42))).encode('ascii')
         assert a['foo'] == 'bar'
         assert a['baz'] == 42
         with pytest.raises(PermissionError):
@@ -91,8 +111,9 @@ class TestAttributes(unittest.TestCase):
         with pytest.raises(PermissionError):
             a.update(foo='quux')
 
-    def test_key_completions(self):
-        a = self.init_attributes(dict())
+    def test_key_completions(self, zarr_version):
+        store = _init_store(zarr_version)
+        a = self.init_attributes(store)
         d = a._ipython_key_completions_()
         assert 'foo' not in d
         assert '123' not in d
@@ -107,14 +128,17 @@ class TestAttributes(unittest.TestCase):
         assert 'asdf;' in d
         assert 'baz' not in d
 
-    def test_caching_on(self):
+    def test_caching_on(self, zarr_version):
         # caching is turned on by default
 
         # setup store
-        store = CountingDict()
+        store = CountingDict() if zarr_version == 2 else CountingDictV3()
         assert 0 == store.counter['__getitem__', 'attrs']
         assert 0 == store.counter['__setitem__', 'attrs']
-        store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+        if zarr_version == 2:
+            store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+        else:
+            store['attrs'] = json.dumps(dict(attributes=dict(foo='xxx', bar=42))).encode('ascii')
         assert 0 == store.counter['__getitem__', 'attrs']
         assert 1 == store.counter['__setitem__', 'attrs']
 
@@ -163,7 +187,10 @@ class TestAttributes(unittest.TestCase):
         assert 4 == store.counter['__setitem__', 'attrs']
 
         # test refresh()
-        store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+        if zarr_version == 2:
+            store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+        else:
+            store['attrs'] = json.dumps(dict(attributes=dict(foo='xxx', bar=42))).encode('ascii')
         assert 4 == store.counter['__getitem__', 'attrs']
         a.refresh()
         assert 5 == store.counter['__getitem__', 'attrs']
@@ -172,13 +199,17 @@ class TestAttributes(unittest.TestCase):
         assert a['bar'] == 42
         assert 5 == store.counter['__getitem__', 'attrs']
 
-    def test_caching_off(self):
+    def test_caching_off(self, zarr_version):
 
         # setup store
-        store = CountingDict()
+        store = CountingDict() if zarr_version == 2 else CountingDictV3()
         assert 0 == store.counter['__getitem__', 'attrs']
         assert 0 == store.counter['__setitem__', 'attrs']
-        store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+
+        if zarr_version == 2:
+            store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
+        else:
+            store['attrs'] = json.dumps(dict(attributes=dict(foo='xxx', bar=42))).encode('ascii')
         assert 0 == store.counter['__getitem__', 'attrs']
         assert 1 == store.counter['__setitem__', 'attrs']
 

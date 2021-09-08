@@ -44,11 +44,13 @@ class Attributes(MutableMapping):
         try:
             data = self.store[self.key]
         except KeyError:
-            d = dict()
+            if self._version == 2:
+                d = dict()
+            else:
+                d = dict(attributes={})
         else:
-            if self._version == 3:
-                assert isinstance(data, bytes)
-                d = json_loads(data)["attributes"]
+            if hasattr(self.store, '_metadata_class'):
+                d = self.store._metadata_class.parse_metadata(data)
             else:
                 d = parse_metadata(data)
         assert isinstance(d, dict)
@@ -59,6 +61,8 @@ class Attributes(MutableMapping):
         if self.cache and self._cached_asdict is not None:
             return self._cached_asdict
         d = self._get_nosync()
+        if self._version == 3:
+            d = d['attributes']
         if self.cache:
             self._cached_asdict = d
         return d
@@ -66,7 +70,10 @@ class Attributes(MutableMapping):
     def refresh(self):
         """Refresh cached attributes from the store."""
         if self.cache:
-            self._cached_asdict = self._get_nosync()
+            if self._version == 3:
+                self._cached_asdict = self._get_nosync()['attributes']
+            else:
+                self._cached_asdict = self._get_nosync()
 
     def __contains__(self, x):
         return x in self.asdict()
@@ -96,7 +103,10 @@ class Attributes(MutableMapping):
         d = self._get_nosync()
 
         # set key value
-        d[item] = value
+        if self._version == 2:
+            d[item] = value
+        else:
+            d['attributes'][item] = value
 
         # _put modified data
         self._put_nosync(d)
@@ -110,7 +120,10 @@ class Attributes(MutableMapping):
         d = self._get_nosync()
 
         # delete key value
-        del d[key]
+        if self._version == 2:
+            del d[key]
+        else:
+            del d['attributes'][key]
 
         # _put modified data
         self._put_nosync(d)
@@ -118,14 +131,21 @@ class Attributes(MutableMapping):
     def put(self, d):
         """Overwrite all attributes with the key/value pairs in the provided dictionary
         `d` in a single operation."""
-        self._write_op(self._put_nosync, d)
+        if self._version == 2:
+            self._write_op(self._put_nosync, d)
+        else:
+            self._write_op(self._put_nosync, dict(attributes=d))
 
     def _put_nosync(self, d):
-        if self._version == 3:
-            raise ValueError('attributes are stored on group/arrays in v3.')
+        # if self._version == 3:
+        #     raise ValueError('attributes are stored on group/arrays in v3.')
         self.store[self.key] = json_dumps(d)
         if self.cache:
-            self._cached_asdict = d
+            if self._version == 2:
+                self._cached_asdict = d
+            else:
+
+                self._cached_asdict = d['attributes']
 
     # noinspection PyMethodOverriding
     def update(self, *args, **kwargs):
@@ -138,7 +158,12 @@ class Attributes(MutableMapping):
         d = self._get_nosync()
 
         # update
-        d.update(*args, **kwargs)
+        if self._version == 2:
+            d.update(*args, **kwargs)
+        else:
+            if 'attributes' not in d:
+                d['attributes'] = {}
+            d['attributes'].update(*args, **kwargs)
 
         # _put modified data
         self._put_nosync(d)

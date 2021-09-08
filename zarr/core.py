@@ -237,7 +237,7 @@ class Array:
                 # TODO: omit attribute in v3?
                 self._dimension_separator = meta.get('dimension_separator',
                                                      '/')
-                self._attributes = meta['attributes']  # TODO: remove, already in .attrs?
+                # self._attributes = meta['attributes']  # TODO: remove, already in .attrs?
                 chunk_separator = meta['chunk_grid']['separator']
                 assert chunk_separator == self._dimension_separator
 
@@ -2252,7 +2252,8 @@ class Array:
 
     def __getstate__(self):
         return (self._store, self._path, self._read_only, self._chunk_store,
-                self._synchronizer, self._cache_metadata, self._attrs.cache)
+                self._synchronizer, self._cache_metadata, self._attrs.cache,
+                self._partial_decompress, self._version)
 
     def __setstate__(self, state):
         self.__init__(*state)
