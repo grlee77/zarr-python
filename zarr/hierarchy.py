@@ -297,7 +297,6 @@ class Group(MutableMapping):
             # also yield any implicit groups
             for prefix in prefixes:
                 prefix = prefix.rstrip('/')
-                print(f"\n\tprefix={prefix}")
                 # only implicit if there is no .group.sfx file
                 if not prefix + '.group' + sfx in self._store:
                     yield prefix[name_start:]
@@ -648,7 +647,6 @@ class Group(MutableMapping):
                 if key.endswith('.group' + sfx):
                     # skip group metadata keys
                     continue
-                print(f"akey = {key}, path = {path}")
                 if contains_array(self._store, path):
                     _key = key.rstrip("/")
                     yield _key if keys_only else (_key, self[key])
@@ -693,7 +691,6 @@ class Group(MutableMapping):
                     yield v
 
         for each_obj in islice(_visit(self), 1, None):
-            print(f"each_obj(values) = {each_obj}")
             value = func(each_obj)
             if value is not None:
                 return value

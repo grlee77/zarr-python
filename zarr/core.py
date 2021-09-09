@@ -1709,6 +1709,7 @@ class Array:
         # iterate over chunks in range
         if not hasattr(self.store, "setitems") or self._synchronizer is not None \
            or any(map(lambda x: x == 0, self.shape)):
+
             # iterative approach
             for chunk_coords, chunk_selection, out_selection in indexer:
 

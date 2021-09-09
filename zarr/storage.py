@@ -1338,14 +1338,17 @@ class FSStore(Store):
             dimension_separator = key_separator
 
         self.key_separator = dimension_separator
-        if self.key_separator is None:
-            self.key_separator = "."
+        self._default_key_separator()
 
         # Pass attributes to array creation
         self._dimension_separator = dimension_separator
 
         if self.fs.exists(self.path) and not self.fs.isdir(self.path):
             raise FSPathExistNotDir(url)
+
+    def _default_key_separator(self):
+        if self.key_separator is None:
+            self.key_separator = "."
 
     def _normalize_key(self, key):
         key = normalize_storage_path(key).lstrip('/')
@@ -2923,11 +2926,22 @@ class FSStoreV3(FSStore, StoreV3):
     # TODO: update these meta keys
     _META_KEYS = ()  # FSStore only uses this within normalize_key
 
+    def _default_key_separator(self):
+        if self.key_separator is None:
+            self.key_separator = "/"
+
     def list(self):
         return list(self.keys())
 
     def _normalize_key(self, key):
         key = normalize_storage_path(key).lstrip('/')
+        # if key:
+        #     *bits, end = key.split('/')
+
+        #     sfx = ".json"
+        #     if not (end.endswith((".group" + sfx, ".array" + sfx)) or end == "zarr.json"):
+        #         end = end.replace('.', self.key_separator)
+        #         key = '/'.join(bits + [end])
         return key.lower() if self.normalize_keys else key
 
     def getsize(self, path=None):
@@ -2938,6 +2952,22 @@ class FSStoreV3(FSStore, StoreV3):
         for d in dirs:
             size += self.fs.du(d, total=True, maxdepth=None)
         return size
+
+    def setitems(self, values):
+        if self.mode == 'r':
+            raise ReadOnlyError()
+        values = {self._normalize_key(key): val for key, val in values.items()}
+
+        # initialize the /data/root/... folder corresponding to the array!
+        # Note: zarr.tests.test_core_v3.TestArrayWithFSStoreV3PartialRead fails
+        # without this explicit creation of directories
+        subdirectories = set([os.path.dirname(v) for v in values.keys()])
+        for subdirectory in subdirectories:
+            data_dir = os.path.join(self.path, subdirectory)
+            if not self.fs.exists(data_dir):
+                self.fs.mkdir(data_dir)
+
+        self.map.setitems(values)
 
     # def listdir(self, path=None):
     #     raise NotImplementedError("TODO: update this function for V3")
