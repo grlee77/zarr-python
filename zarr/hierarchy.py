@@ -134,7 +134,7 @@ class Group(MutableMapping):
         except KeyError:
             raise GroupNotFoundError(path)
         else:
-            meta = decode_group_metadata(meta_bytes)
+            meta = self._store._metadata_class.decode_group_metadata(meta_bytes)
             self._meta = meta
 
         # setup attributes
