@@ -137,12 +137,24 @@ class Attributes(MutableMapping):
             self._write_op(self._put_nosync, dict(attributes=d))
 
     def _put_nosync(self, d):
-        self.store[self.key] = json_dumps(d)
-        if self.cache:
-            if self._version == 2:
+        if self._version == 2:
+            self.store[self.key] = json_dumps(d)
+            if self.cache:
                 self._cached_asdict = d
+        else:
+            # Cannot write the attributes directly to JSON, but have to
+            # store it within the pre-existing attributes key of the v3
+            # metadata.
+            if hasattr(self.store, '_metadata_class'):
+                meta = self.store._metadata_class.parse_metadata(self.store[self.key])
             else:
-
+                meta = parse_metadata(self.store[self.key])
+            if 'attributes' in meta and 'filters' in meta['attributes']:
+                # need to preserve any existing "filters" attribute
+                d['attributes']['filters'] = meta['attributes']['filters']
+            meta['attributes'] = d['attributes']
+            self.store[self.key] = json_dumps(meta)
+            if self.cache:
                 self._cached_asdict = d['attributes']
 
     # noinspection PyMethodOverriding
