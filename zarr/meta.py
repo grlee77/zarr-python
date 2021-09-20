@@ -34,6 +34,10 @@ ZARR_V3_ALLOW_STRUCTURED = int(os.environ.get("ZARR_V3_ALLOW_STRUCTURED",
                                               not ZARR_V3_CORE_DTYPES_ONLY))
 ZARR_V3_ALLOW_OBJECTARRAY = int(os.environ.get("ZARR_V3_ALLOW_OBJECTARRAY",
                                                not ZARR_V3_CORE_DTYPES_ONLY))
+ZARR_V3_ALLOW_BYTES_ARRAY = int(os.environ.get("ZARR_V3_ALLOW_BYTES_ARRAY",
+                                               not ZARR_V3_CORE_DTYPES_ONLY))
+ZARR_V3_ALLOW_UNICODE_ARRAY = int(os.environ.get("ZARR_V3_ALLOW_UNICODE_ARRAY",
+                                               not ZARR_V3_CORE_DTYPES_ONLY))
 
 _default_entry_point_metadata_v3 = {
     'zarr_format': "https://purl.org/zarr/spec/protocol/core/3.0",
@@ -271,6 +275,12 @@ class Metadata3(Metadata2):
         elif dtype.kind == 'V':
             if not ZARR_V3_ALLOW_STRUCTURED:
                 raise ValueError("structured arrays not supported")
+        elif dtype.kind == 'U':
+            if not ZARR_V3_ALLOW_UNICODE_ARRAY:
+                raise ValueError("unicode arrays not supported")
+        elif dtype.kind == 'S':
+            if not ZARR_V3_ALLOW_BYTES_ARRAY:
+                raise ValueError("bytes arrays not supported")
         else:
             assert d in _v3_core_type
         return dtype
@@ -306,6 +316,14 @@ class Metadata3(Metadata2):
                 raise ValueError(
                     "structured arrays are not part of the base v3 spec"
                 )
+        elif dtype.kind == 'U':
+            if not ZARR_V3_ALLOW_UNICODE_ARRAY:
+                raise ValueError("unicode dtypes are not part of the base v3 "
+                                 "spec")
+        elif dtype.kind == 'S':
+            if not ZARR_V3_ALLOW_BYTES_ARRAY:
+                raise ValueError("bytes dtypes are not part of the base v3 "
+                                 "spec")
         else:
             assert s in _v3_core_type
         return s
