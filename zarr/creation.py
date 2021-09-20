@@ -51,8 +51,8 @@ def create(shape, chunks=True, dtype=None, compressor='default',
         If True, delete all pre-existing data in `store` at `path` before
         creating the array.
     path : string, optional
-        Path under which array is stored. For zarr spec v3 arrays, this will
-        default to 'array'.
+        Path under which array is stored. This paramter is optional for v2 Zarr stores, but
+        is required in v3.
     chunk_store : MutableMapping, optional
         Separate storage for chunks. If not provided, `store` will be used
         for storage of both chunks and metadata.
