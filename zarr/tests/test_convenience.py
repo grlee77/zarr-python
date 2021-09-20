@@ -488,7 +488,14 @@ def check_copied_array(original, copied, without_attrs=False,
         for k in original.attrs.keys():
             assert k not in copied.attrs
     else:
-        assert sorted(original.attrs.items()) == sorted(copied.attrs.items())
+        if dest_h5py and 'filters' in original.attrs:
+            # special case in v3 (storing filters metadata under attributes)
+            # we explicitly do not copy this info over to HDF5
+            original_attrs = original.attrs.asdict().copy()
+            original_attrs.pop('filters')
+        else:
+            original_attrs = original.attrs
+        assert sorted(original_attrs.items()) == sorted(copied.attrs.items())
 
 
 def check_copied_group(original, copied, without_attrs=False, expect_props=None,

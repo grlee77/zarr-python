@@ -12,7 +12,7 @@ from numcodecs.registry import get_codec, register_codec
 
 from .meta import ZARR_FORMAT, json_dumps, json_loads
 from .storage import FSStore
-from .storage import (NestedDirectoryStore, _prog_ckey, _prog_number, normalize_storage_path
+from .storage import (NestedDirectoryStore, _prog_ckey, _prog_number, normalize_storage_path,
                       NestedDirectoryStoreV3)
 from .storage import array_meta_key as zarr_array_meta_key
 from .storage import attrs_key as zarr_attrs_key

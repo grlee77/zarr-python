@@ -961,7 +961,15 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
 
                 # copy attributes
                 if not without_attrs:
-                    ds.attrs.update(source.attrs)
+                    if dest_h5py and 'filters' in source.attrs:
+                        # No filters key in v3 metadata so it was stored in the
+                        # attributes instead. We cannot copy this key to
+                        # HDF5 attrs, though!
+                        source_attrs = source.attrs.asdict().copy()
+                        source_attrs.pop('filters', None)
+                    else:
+                        source_attrs = source.attrs
+                    ds.attrs.update(source_attrs)
 
             n_copied += 1
 
