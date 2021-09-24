@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 from numcodecs.compat import ensure_bytes, ensure_ndarray
 
+from zarr._storage.store import _prefix_to_attrs_key
 from zarr.attrs import Attributes
 from zarr.codecs import AsType, get_codec
 from zarr.errors import ArrayNotFoundError, ReadOnlyError, ArrayIndexError
@@ -32,7 +33,6 @@ from zarr.indexing import (
 )
 from zarr.storage import (
     _get_hierarchy_metadata,
-    _prefix_to_attrs_key,
     _prefix_to_array_key,
     getsize,
     listdir,

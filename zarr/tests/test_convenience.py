@@ -560,7 +560,7 @@ def test_copy_all_v3():
 
     """
     original_group = zarr.group(store=MemoryStoreV3(), path='group1', overwrite=True)
-    # original_subgroup = original_group.create_group("subgroup")
+    original_group.create_group("subgroup")
 
     destination_group = zarr.group(store=MemoryStoreV3(), path='group2', overwrite=True)
 

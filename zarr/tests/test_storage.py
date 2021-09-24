@@ -1505,13 +1505,20 @@ class TestFSStore(StoreTests):
 @pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")
 class TestFSStoreV3(TestFSStore, StoreV3Tests):
 
-    def create_store(self, normalize_keys=False, dimension_separator="."):
-        path = tempfile.mkdtemp()
-        atexit.register(atexit_rmtree, path)
+    def create_store(self, normalize_keys=False,
+                     dimension_separator=".",
+                     path=None,
+                     **kwargs):
+
+        if path is None:
+            path = tempfile.mkdtemp()
+            atexit.register(atexit_rmtree, path)
+
         store = FSStoreV3(
             path,
             normalize_keys=normalize_keys,
-            dimension_separator=dimension_separator)
+            dimension_separator=dimension_separator,
+            **kwargs)
         return store
 
     def test_init_array(self):
@@ -1528,6 +1535,22 @@ class TestFSStoreV3(TestFSStore, StoreV3Tests):
         assert (100,) == meta['chunk_grid']['chunk_shape']
         assert np.dtype(None) == meta['data_type']
         assert meta['chunk_grid']['separator'] == "/"
+
+    def test_deep_ndim(self):
+        import zarr
+
+        store = self.create_store()
+        foo = zarr.open_group(store=store, path='group1')
+        bar = foo.create_group("bar")
+        baz = bar.create_dataset("baz",
+                                 shape=(4, 4, 4),
+                                 chunks=(2, 2, 2),
+                                 dtype="i8")
+        baz[:] = 1
+        assert set(store.listdir()) == set(["data", "meta", "zarr.json"])
+        assert set(store.listdir("meta/root/group1")) == set(["bar", "bar.group.json"])
+        assert set(store.listdir("data/root/group1")) == set(["bar"])
+        assert foo["bar"]["baz"][(0, 0, 0)] == 1
 
 
 @pytest.mark.skipif(have_fsspec is False, reason="needs fsspec")

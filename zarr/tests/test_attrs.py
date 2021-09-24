@@ -155,35 +155,38 @@ class TestAttributes():
 
         # test __setitem__ updates the cache
         a['foo'] = 'yyy'
-        assert 2 == store.counter['__getitem__', 'attrs']
+        get_cnt = 2 if zarr_version == 2 else 3
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 2 == store.counter['__setitem__', 'attrs']
         assert a['foo'] == 'yyy'
-        assert 2 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 2 == store.counter['__setitem__', 'attrs']
 
         # test update() updates the cache
         a.update(foo='zzz', bar=84)
-        assert 3 == store.counter['__getitem__', 'attrs']
+        get_cnt = 3 if zarr_version == 2 else 5
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
         assert a['foo'] == 'zzz'
         assert a['bar'] == 84
-        assert 3 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
 
         # test __contains__ uses the cache
         assert 'foo' in a
-        assert 3 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
         assert 'spam' not in a
-        assert 3 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
 
         # test __delitem__ updates the cache
         del a['bar']
-        assert 4 == store.counter['__getitem__', 'attrs']
+        get_cnt = 4 if zarr_version == 2 else 7
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 4 == store.counter['__setitem__', 'attrs']
         assert 'bar' not in a
-        assert 4 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 4 == store.counter['__setitem__', 'attrs']
 
         # test refresh()
@@ -191,13 +194,14 @@ class TestAttributes():
             store['attrs'] = json.dumps(dict(foo='xxx', bar=42)).encode('ascii')
         else:
             store['attrs'] = json.dumps(dict(attributes=dict(foo='xxx', bar=42))).encode('ascii')
-        assert 4 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         a.refresh()
-        assert 5 == store.counter['__getitem__', 'attrs']
+        get_cnt = 5 if zarr_version == 2 else 8
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert a['foo'] == 'xxx'
-        assert 5 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert a['bar'] == 42
-        assert 5 == store.counter['__getitem__', 'attrs']
+        assert get_cnt == store.counter['__getitem__', 'attrs']
 
     def test_caching_off(self, zarr_version):
 
@@ -226,25 +230,31 @@ class TestAttributes():
 
         # test __setitem__
         a['foo'] = 'yyy'
-        assert 4 == store.counter['__getitem__', 'attrs']
+        get_cnt = 4 if zarr_version == 2 else 5
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 2 == store.counter['__setitem__', 'attrs']
         assert a['foo'] == 'yyy'
-        assert 5 == store.counter['__getitem__', 'attrs']
+        get_cnt = 5 if zarr_version == 2 else 6
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 2 == store.counter['__setitem__', 'attrs']
 
         # test update()
         a.update(foo='zzz', bar=84)
-        assert 6 == store.counter['__getitem__', 'attrs']
+        get_cnt = 6 if zarr_version == 2 else 8
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
         assert a['foo'] == 'zzz'
         assert a['bar'] == 84
-        assert 8 == store.counter['__getitem__', 'attrs']
+        get_cnt = 8 if zarr_version == 2 else 10
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
 
         # test __contains__
         assert 'foo' in a
-        assert 9 == store.counter['__getitem__', 'attrs']
+        get_cnt = 9 if zarr_version == 2 else 11
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']
         assert 'spam' not in a
-        assert 10 == store.counter['__getitem__', 'attrs']
+        get_cnt = 10 if zarr_version == 2 else 12
+        assert get_cnt == store.counter['__getitem__', 'attrs']
         assert 3 == store.counter['__setitem__', 'attrs']

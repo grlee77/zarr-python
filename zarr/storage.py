@@ -585,7 +585,10 @@ def _init_array_metadata(
         )
 
     key = _prefix_to_array_key(store, _path_to_prefix(path))
-    store[key] = store._metadata_class.encode_array_metadata(meta)
+    if hasattr(store, '_metadata_class'):
+        store[key] = store._metadata_class.encode_array_metadata(meta)
+    else:
+        store[key] = encode_array_metadata(meta)
 
 
 # backwards compatibility
@@ -696,7 +699,10 @@ def _init_group_metadata(
     else:
         meta = {}  # type: ignore
     key = _prefix_to_group_key(store, _path_to_prefix(path))
-    store[key] = store._metadata_class.encode_group_metadata(meta)
+    if hasattr(store, '_metadata_class'):
+        store[key] = store._metadata_class.encode_group_metadata(meta)
+    else:
+        store[key] = encode_group_metadata(meta)
 
 
 class KVStore(Store):
