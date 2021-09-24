@@ -31,7 +31,6 @@ from zarr.storage import (
     LRUStoreCache,
     NestedDirectoryStore,
     SQLiteStore,
-    Store,
     atexit_rmglob,
     atexit_rmtree,
     init_array,
@@ -1661,6 +1660,16 @@ class TestArrayWithDirectoryStore(TestArray):
         assert expect_nbytes_stored == z.nbytes_stored
 
 
+def test_array_init_from_dict():
+    # initialization via non-Store MutableMapping
+    store = dict()
+    init_array(store, shape=100, chunks=10, dtype="<f8")
+    a = Array(store)
+    assert isinstance(a, Array)
+    assert a.store is not store
+    assert isinstance(a.store, KVStore)
+
+
 @skip_test_env_var("ZARR_TEST_ABS")
 class TestArrayWithABSStore(TestArray):
 
@@ -2394,16 +2403,13 @@ class TestArrayWithFilters(TestArray):
 
 
 # custom store, does not support getsize()
-class CustomMapping(Store):
+class CustomMapping(object):
 
     def __init__(self):
         self.inner = KVStore(dict())
 
     def __iter__(self):
         return iter(self.keys())
-
-    def __len__(self):
-        return len(self.inner)
 
     def keys(self):
         return self.inner.keys()

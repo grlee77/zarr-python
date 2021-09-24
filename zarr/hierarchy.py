@@ -13,7 +13,7 @@ from zarr.errors import (
     GroupNotFoundError,
     ReadOnlyError,
 )
-from zarr.meta import decode_group_metadata, _default_entry_point_metadata_v3
+from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (
     _get_hierarchy_metadata,
     _prefix_to_group_key,

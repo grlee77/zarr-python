@@ -51,7 +51,7 @@ class Metadata2:
     ZARR_FORMAT = ZARR_FORMAT
 
     @classmethod
-    def parse_metadata(cls, s) -> dict:
+    def parse_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
         # Here we allow that a store may return an already-parsed metadata object,
         # or a string of JSON that we will parse here. We allow for an already-parsed
         # object to accommodate a consolidated metadata store, where all the metadata for
@@ -66,7 +66,7 @@ class Metadata2:
         return meta
 
     @classmethod
-    def decode_array_metadata(cls, s) -> dict:
+    def decode_array_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
         meta = cls.parse_metadata(s)
 
         # check metadata format
@@ -101,7 +101,7 @@ class Metadata2:
             return meta
 
     @classmethod
-    def encode_array_metadata(cls, meta: dict) -> str:
+    def encode_array_metadata(cls, meta: MappingType[str, Any]) -> bytes:
         dtype = meta["dtype"]
         sdshape = ()
         if dtype.subdtype is not None:
@@ -122,19 +122,21 @@ class Metadata2:
             order=meta["order"],
             filters=meta["filters"],
         )
+
         if dimension_separator:
             meta["dimension_separator"] = dimension_separator
+
         return json_dumps(meta)
 
     @classmethod
-    def encode_dtype(cls, d):
+    def encode_dtype(cls, d: np.dtype):
         if d.fields is None:
             return d.str
         else:
             return d.descr
 
     @classmethod
-    def _decode_dtype_descr(cls, d):
+    def _decode_dtype_descr(cls, d) -> List[Any]:
         # need to convert list of lists to list of tuples
         if isinstance(d, list):
             # recurse to handle nested structures
@@ -142,12 +144,12 @@ class Metadata2:
         return d
 
     @classmethod
-    def decode_dtype(cls, d):
+    def decode_dtype(cls, d) -> np.dtype:
         d = cls._decode_dtype_descr(d)
         return np.dtype(d)
 
     @classmethod
-    def decode_group_metadata(cls, s):
+    def decode_group_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
         meta = cls.parse_metadata(s)
 
         # check metadata format version
@@ -161,12 +163,12 @@ class Metadata2:
     # N.B., keep `meta` parameter as a placeholder for future
     # noinspection PyUnusedLocal
     @classmethod
-    def encode_group_metadata(cls, meta=None):
+    def encode_group_metadata(cls, meta=None) -> bytes:
         meta = dict(zarr_format=cls.ZARR_FORMAT)
         return json_dumps(meta)
 
     @classmethod
-    def decode_fill_value(cls, v, dtype, object_codec=None):
+    def decode_fill_value(cls, v: Any, dtype: np.dtype, object_codec: Any = None) -> Any:
         # early out
         if v is None:
             return v
@@ -188,8 +190,8 @@ class Metadata2:
                 return np.array(v, dtype=dtype)[()]
         elif dtype.kind in "c":
             v = (
-                decode_fill_value(v[0], dtype.type().real.dtype),
-                decode_fill_value(v[1], dtype.type().imag.dtype),
+                cls.decode_fill_value(v[0], dtype.type().real.dtype),
+                cls.decode_fill_value(v[1], dtype.type().imag.dtype),
             )
             v = v[0] + 1j * v[1]
             return np.array(v, dtype=dtype)[()]
@@ -238,10 +240,9 @@ class Metadata2:
         elif dtype.kind == "b":
             return bool(v)
         elif dtype.kind in "c":
-            v = (
-                cls.encode_fill_value(v.real, dtype.type().real.dtype, object_codec),
-                cls.encode_fill_value(v.imag, dtype.type().imag.dtype, object_codec),
-            )
+            c = cast(np.complex128, np.dtype(complex).type())
+            v = (cls.encode_fill_value(v.real, c.real.dtype, object_codec),
+                 cls.encode_fill_value(v.imag, c.imag.dtype, object_codec))
             return v
         elif dtype.kind in "SV":
             v = str(base64.standard_b64encode(v), "ascii")

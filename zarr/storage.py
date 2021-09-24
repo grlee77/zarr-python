@@ -165,38 +165,18 @@ def rename(store: Store, src_path: Path, dst_path: Path):
         _rename_from_keys(store, src_path, dst_path)
 
 
-# def _norm(k):
-#     # normalize for v2 keys
-#     if k.endswith(".group"):
-#         return k[:-6] + "/"
-#     elif k.endswith(".array"):
-#         return k[:-6]
-#     return k
-
-
-# def _norm_v3(k, metadata_key_suffix='.json'):
-#     # normalize for v3 keys
-#     if k.endswith(".group" + metadata_key_suffix):
-#         return k[:-11] + "/"
-#     elif k.endswith(".array" + metadata_key_suffix):
-#         return k[:-11]
-#     elif k.startswith('/meta/root/', '/data/root/'):
-#         return k[10:]
-
-
 def listdir(store: Store, path: Path = None):
     """Obtain a directory listing for the given path. If `store` provides a `listdir`
     method, this will be called, otherwise will fall back to implementation via the
     `MutableMapping` interface."""
     path = normalize_storage_path(path)
-
     if hasattr(store, 'listdir'):
         # pass through
         return store.listdir(path)  # type: ignore
     elif getattr(store, "_store_version", None) == 3:
         meta_prefix = 'meta/root/'
         dir_path = meta_prefix + path
-        path_start = len(meta_prefix)  # len("meta/root/")
+        path_start = len(meta_prefix)
         meta_keys = []
         include_meta_keys = False
         if include_meta_keys:
@@ -230,7 +210,6 @@ def listdir(store: Store, path: Path = None):
             "may want to inherit from `Store`.",
             stacklevel=2,
         )
-
         return _listdir_from_keys(store, path)
 
 
@@ -241,7 +220,7 @@ def getsize(store: Store, path: Path = None) -> int:
     if hasattr(store, 'getsize'):
         # pass through
         return store.getsize(path)  # type: ignore
-    if isinstance(store, MutableMapping):
+    elif isinstance(store, MutableMapping):
         # compute from size of values
         if path in store:
             v = store[path]
@@ -609,9 +588,6 @@ def _init_array_metadata(
 
     key = _prefix_to_array_key(store, _path_to_prefix(path))
     store[key] = store._metadata_class.encode_array_metadata(meta)
-    #if getattr(store, '_store_version', 2) == 3:
-    #    data_key = key.replace('meta/', 'data/', 1)
-    #    store[data_key]
 
 
 # backwards compatibility
@@ -779,7 +755,7 @@ def _dict_store_keys(d: Dict, prefix="", cls=dict):
 
 
 class MemoryStore(Store):
-    """Store class that uses a hierarchy of KVStore objects, thus all data
+    """Store class that uses a hierarchy of :class:`KVStore` objects, thus all data
     will be held in main memory.
 
     Examples
@@ -1890,7 +1866,10 @@ def migrate_1to2(store):
     del meta['compression_opts']
 
     # store migrated metadata
-    store[array_meta_key] = store._metadata_class.encode_array_metadata(meta)
+    if hasattr(store, '_metadata_class'):
+        store[array_meta_key] = store._metadata_class.encode_array_metadata(meta)
+    else:
+        store[array_meta_key] = encode_array_metadata(meta)
 
     # migrate user attributes
     store[attrs_key] = store['attrs']
@@ -2267,7 +2246,6 @@ class LMDBStore(Store):
         return self.db.stat()['entries']
 
 
-
 class LRUStoreCache(Store):
     """Storage class that implements a least-recently-used (LRU) cache layer over
     some other store. Intended primarily for use with stores that can be slow to
@@ -2305,7 +2283,7 @@ class LRUStoreCache(Store):
 
     """
 
-    def __init__(self, store, max_size: int):
+    def __init__(self, store: [Store, Any], max_size: int):
         self._store = Store._ensure_store(store)
         self._max_size = max_size
         self._current_size = 0

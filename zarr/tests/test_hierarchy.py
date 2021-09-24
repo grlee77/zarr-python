@@ -1020,6 +1020,22 @@ class TestGroup(unittest.TestCase):
             d[:] = np.arange(100)
 
 
+@pytest.mark.parametrize('chunk_dict', [False, True])
+def test_group_init_from_dict(chunk_dict):
+    if chunk_dict:
+        store, chunk_store = dict(), dict()
+    else:
+        store, chunk_store = dict(), None
+    init_group(store, path=None, chunk_store=chunk_store)
+    g = Group(store, path=None, read_only=False, chunk_store=chunk_store)
+    assert store is not g.store
+    assert isinstance(g.store, KVStore)
+    if chunk_store is None:
+        assert g.store is g.chunk_store
+    else:
+        assert chunk_store is not g.chunk_store
+
+
 # noinspection PyStatementEffect
 class TestGroupV3(TestGroup, unittest.TestCase):
 

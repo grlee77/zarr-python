@@ -1,6 +1,6 @@
 from collections.abc import MutableMapping
 
-from zarr.meta import parse_metadata
+from zarr._storage.store import Store, StoreV3
 from zarr.util import json_dumps, json_loads
 
 
@@ -33,7 +33,8 @@ class Attributes(MutableMapping):
         if self._version == 3 and '.z' in key:
             raise ValueError('invalid v3 key')
 
-        self.store = store
+        _Store = Store if self._version == 2 else StoreV3
+        self.store = _Store._ensure_store(store)
         self.key = key
         self.read_only = read_only
         self.cache = cache
@@ -44,16 +45,11 @@ class Attributes(MutableMapping):
         try:
             data = self.store[self.key]
         except KeyError:
-            if self._version == 2:
-                d = dict()
-            else:
-                d = dict(attributes={})
+            d = dict()
+            if self._version > 2:
+                dict['attributes'] = {}
         else:
-            if hasattr(self.store, '_metadata_class'):
-                d = self.store._metadata_class.parse_metadata(data)
-            else:
-                d = parse_metadata(data)
-        assert isinstance(d, dict)
+            d = self.store._metadata_class.parse_metadata(data)
         return d
 
     def asdict(self):
@@ -145,10 +141,7 @@ class Attributes(MutableMapping):
             # Cannot write the attributes directly to JSON, but have to
             # store it within the pre-existing attributes key of the v3
             # metadata.
-            if hasattr(self.store, '_metadata_class'):
-                meta = self.store._metadata_class.parse_metadata(self.store[self.key])
-            else:
-                meta = parse_metadata(self.store[self.key])
+            meta = self.store._metadata_class.parse_metadata(self.store[self.key])
             if 'attributes' in meta and 'filters' in meta['attributes']:
                 # need to preserve any existing "filters" attribute
                 d['attributes']['filters'] = meta['attributes']['filters']

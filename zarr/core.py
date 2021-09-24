@@ -140,7 +140,7 @@ class Array:
 
     def __init__(
         self,
-        store: Store,
+        store: [Store, Any],
         path=None,
         read_only=False,
         chunk_store=None,
@@ -1709,7 +1709,6 @@ class Array:
         # iterate over chunks in range
         if not hasattr(self.store, "setitems") or self._synchronizer is not None \
            or any(map(lambda x: x == 0, self.shape)):
-
             # iterative approach
             for chunk_coords, chunk_selection, out_selection in indexer:
 

@@ -1,5 +1,4 @@
 import json
-import unittest
 
 import pytest
 
@@ -28,6 +27,7 @@ class TestAttributes():
 
         store = _init_store(zarr_version)
         a = Attributes(store=store, key='attrs')
+        assert isinstance(a.store, KVStore)
         assert 'foo' not in a
         assert 'bar' not in a
         assert dict() == a.asdict()
