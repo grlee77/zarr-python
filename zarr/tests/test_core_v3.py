@@ -1,27 +1,17 @@
 import atexit
 import os
-import sys
-import pickle
 import shutil
-import unittest
-from itertools import zip_longest
 from tempfile import mkdtemp, mktemp
 
 import numpy as np
 import pytest
-from numcodecs import (BZ2, JSON, LZ4, Blosc, Categorize, Delta,
-                       FixedScaleOffset, GZip, MsgPack, Pickle, VLenArray,
-                       VLenBytes, VLenUTF8, Zlib)
-from numcodecs.compat import ensure_bytes, ensure_ndarray
-from numcodecs.tests.common import greetings
+from numcodecs import (Blosc, Zlib)
+from numcodecs.compat import ensure_bytes
 from numpy.testing import assert_array_almost_equal, assert_array_equal
-from pkg_resources import parse_version
 
 from zarr.core import Array
 from zarr.errors import ArrayNotFoundError, ContainsGroupError
-from zarr.indexing import BoundsCheckError
 from zarr.meta import json_loads, ZARR_V3_ALLOW_COMPLEX, ZARR_V3_ALLOW_DATETIME
-from zarr.n5 import N5Store, n5_keywords
 from zarr.storage import (
     # ABSStoreV3,
     DBMStoreV3,
@@ -39,7 +29,7 @@ from zarr.storage import (
     init_group,
 )
 from zarr.tests.test_core import TestArrayWithPath
-from zarr.tests.util import abs_container, skip_test_env_var, have_fsspec
+from zarr.tests.util import have_fsspec
 from zarr.util import buffer_size
 
 

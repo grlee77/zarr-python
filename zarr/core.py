@@ -4,12 +4,12 @@ import itertools
 import math
 import operator
 import re
+from collections.abc import MutableMapping
 from functools import reduce
+from typing import Any
 
 import numpy as np
 from numcodecs.compat import ensure_bytes, ensure_ndarray
-
-from collections.abc import MutableMapping
 
 from zarr.attrs import Attributes
 from zarr.codecs import AsType, get_codec
@@ -30,7 +30,6 @@ from zarr.indexing import (
     is_scalar,
     pop_fields,
 )
-from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (
     _get_hierarchy_metadata,
     _prefix_to_attrs_key,
@@ -2037,7 +2036,8 @@ class Array:
             # where P = self._key_prefix,  i, j, ... = chunk_coords
             # e.g. c0/2/3 for 3d array with chunk index (0, 2, 3)
             # https://zarr-specs.readthedocs.io/en/core-protocol-v3.0-dev/protocol/core/v3.0.html#regular-grids
-            return "data/root/" + self._key_prefix + "c" + self._dimension_separator.join(map(str, chunk_coords))
+            return ("data/root/" + self._key_prefix +
+                    "c" + self._dimension_separator.join(map(str, chunk_coords)))
         else:
             return self._key_prefix + self._dimension_separator.join(map(str, chunk_coords))
 

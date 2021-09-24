@@ -3,7 +3,7 @@ import json
 import pytest
 
 from zarr.attrs import Attributes
-from zarr.storage import KVStoreV3
+from zarr.storage import KVStore, KVStoreV3
 from zarr.tests.util import CountingDict, CountingDictV3
 
 

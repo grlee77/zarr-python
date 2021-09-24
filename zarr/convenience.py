@@ -650,7 +650,7 @@ def copy_store(source, dest, source_path='', dest_path='', excludes=None,
                 if not source_key.startswith(source_path):
                     continue
             elif source_store_version == 3:
-                nskip = 10  # 'meta/root/' or 'data/root/'
+                # 'meta/root/' or 'data/root/' have length 10
                 if not source_key[10:].startswith(source_path):
                     continue
 
@@ -878,7 +878,6 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
             raise TypeError('source has no name, please provide the `name` '
                             'parameter to indicate a name to copy to')
 
-    zarr_version = getattr(dest, '_version', 2)
     if hasattr(source, 'shape'):
         # copy a dataset/array
 
@@ -910,9 +909,6 @@ def _copy(log, source, dest, name, root, shallow, without_attrs, if_exists,
 
                 # setup creation keyword arguments
                 kws = create_kws.copy()
-
-                # if zarr_version > 2:
-                #     raise NotImplementedError("TODO")
 
                 # setup chunks option, preserve by default
                 kws.setdefault('chunks', source.chunks)
@@ -1139,7 +1135,6 @@ def copy_all(source, dest, shallow=False, without_attrs=False, log=None,
             n_skipped += s
             n_bytes_copied += b
         if zarr_version == 2:
-            # TODO: attrs for v3?
             dest.attrs.update(**source.attrs)
 
         # log a final message with a summary of what happened

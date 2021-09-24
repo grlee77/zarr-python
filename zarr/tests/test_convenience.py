@@ -19,7 +19,6 @@ from zarr.convenience import (
     save,
     save_array,
     save_group,
-    save_array,
     copy_all,
 )
 from zarr.core import Array
@@ -27,7 +26,6 @@ from zarr.errors import CopyError
 from zarr.hierarchy import Group, group
 from zarr.storage import (
     ConsolidatedMetadataStore,
-    KVStoreV3,
     MemoryStore,
     MemoryStoreV3,
     atexit_rmtree,
@@ -562,7 +560,7 @@ def test_copy_all_v3():
 
     """
     original_group = zarr.group(store=MemoryStoreV3(), path='group1', overwrite=True)
-    original_subgroup = original_group.create_group("subgroup")
+    # original_subgroup = original_group.create_group("subgroup")
 
     destination_group = zarr.group(store=MemoryStoreV3(), path='group2', overwrite=True)
 

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 import base64
 import itertools
-import json
 import os
 
 from collections.abc import Mapping
-from typing import Any, Union
-from typing import Mapping as MappingType
+from typing import cast, Union, Any, List, Mapping as MappingType
 
 import numpy as np
 
@@ -37,7 +35,7 @@ ZARR_V3_ALLOW_OBJECTARRAY = int(os.environ.get("ZARR_V3_ALLOW_OBJECTARRAY",
 ZARR_V3_ALLOW_BYTES_ARRAY = int(os.environ.get("ZARR_V3_ALLOW_BYTES_ARRAY",
                                                not ZARR_V3_CORE_DTYPES_ONLY))
 ZARR_V3_ALLOW_UNICODE_ARRAY = int(os.environ.get("ZARR_V3_ALLOW_UNICODE_ARRAY",
-                                               not ZARR_V3_CORE_DTYPES_ONLY))
+                                                 not ZARR_V3_CORE_DTYPES_ONLY))
 
 _default_entry_point_metadata_v3 = {
     'zarr_format': "https://purl.org/zarr/spec/protocol/core/3.0",
@@ -329,7 +327,6 @@ class Metadata3(Metadata2):
             assert s in _v3_core_type
         return s
 
-
     @classmethod
     def decode_group_metadata(cls, s: Union[MappingType, str]) -> MappingType[str, Any]:
         meta = cls.parse_metadata(s)
@@ -343,7 +340,7 @@ class Metadata3(Metadata2):
         # meta = dict(attributes=meta['attributes'])
         return meta
 
-        #return json.loads(s)
+        # return json.loads(s)
 
     @classmethod
     def encode_group_metadata(cls, meta=None):
@@ -372,9 +369,9 @@ class Metadata3(Metadata2):
     def decode_hierarchy_metadata(cls, s) -> dict:
         meta = cls.parse_metadata(s)
         # check metadata format
-        zarr_format = meta.get("zarr_format", None)
-        #if zarr_format != "https://purl.org/zarr/spec/protocol/core/3.0":
-        #    raise MetadataError("unsupported zarr format: %s" % zarr_format)
+        # zarr_format = meta.get("zarr_format", None)
+        # if zarr_format != "https://purl.org/zarr/spec/protocol/core/3.0":
+        #     raise MetadataError("unsupported zarr format: %s" % zarr_format)
         if set(meta.keys()) != {
                 "zarr_format",
                 "metadata_encoding",

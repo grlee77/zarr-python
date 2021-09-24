@@ -50,7 +50,7 @@ from zarr.errors import (
     FSPathExistNotDir,
     ReadOnlyError,
 )
-from zarr.meta import Metadata2, Metadata3, _default_entry_point_metadata_v3
+from zarr.meta import encode_array_metadata
 from zarr.util import (buffer_size, json_loads, nolock, normalize_chunks,
                        normalize_dimension_separator,
                        normalize_dtype, normalize_fill_value, normalize_order,
@@ -63,7 +63,6 @@ from zarr._storage.store import (_get_hierarchy_metadata,
                                  _rmdir_from_keys,
                                  _path_to_prefix,
                                  _prefix_to_array_key,
-                                 _prefix_to_attrs_key,
                                  _prefix_to_group_key,
                                  array_meta_key,
                                  group_meta_key,
@@ -150,6 +149,7 @@ def rmdir(store: Store, path: Path = None):
         group_meta_file = meta_dir + '.group' + sfx
         if group_meta_file in store:
             store.erase(group_meta_file)
+
 
 def rename(store: Store, src_path: Path, dst_path: Path):
     """Rename all items under the given path. If `store` provides a `rename` method,
@@ -501,7 +501,6 @@ def _init_array_metadata(
             #     # implicit group
             #     raise ContainsGroupError(path)
 
-
     # normalize metadata
     dtype, object_codec = normalize_dtype(dtype, object_codec)
     shape = normalize_shape(shape) + dtype.shape
@@ -584,7 +583,6 @@ def _init_array_metadata(
                  data_type=dtype,
                  attributes=attributes)
         )
-
 
     key = _prefix_to_array_key(store, _path_to_prefix(path))
     store[key] = store._metadata_class.encode_array_metadata(meta)
@@ -2901,6 +2899,7 @@ class KVStoreV3(KVStore, StoreV3):
     def list(self):
         return list(self._mutable_mapping.keys())
 
+
 KVStoreV3.__doc__ = KVStore.__doc__
 
 
@@ -2994,7 +2993,6 @@ class FSStoreV3(FSStore, StoreV3):
     #     except IOError:
     #         return []
 
-
     # def list_dir(self, prefix):
     #     """
     #     Note: carefully test this with trailing/leading slashes
@@ -3012,7 +3010,6 @@ class FSStoreV3(FSStore, StoreV3):
     #         else:
     #             prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
     #     return keys, list(set(prefixes))
-
 
 
 class MemoryStoreV3(MemoryStore, StoreV3):
@@ -3059,6 +3056,7 @@ class MemoryStoreV3(MemoryStore, StoreV3):
 
     def list(self):
         return list(self.keys())
+
 
 MemoryStoreV3.__doc__ = MemoryStoreV3.__doc__
 
@@ -3127,6 +3125,8 @@ class ZipStoreV3(ZipStore, StoreV3):
             self.compression == other.compression and
             self.allowZip64 == other.allowZip64
         )
+
+
 ZipStoreV3.__doc__ = ZipStore.__doc__
 
 
@@ -3141,6 +3141,7 @@ class NestedDirectoryStoreV3(NestedDirectoryStore, DirectoryStoreV3):
             self.path == other.path
         )
 
+
 NestedDirectoryStoreV3.__doc__ = NestedDirectoryStore.__doc__
 
 
@@ -3148,6 +3149,7 @@ class RedisStoreV3(RedisStore, StoreV3):
 
     def list(self):
         return list(self.keys())
+
 
 RedisStoreV3.__doc__ = RedisStore.__doc__
 
@@ -3157,6 +3159,7 @@ class MongoDBStoreV3(MongoDBStore, StoreV3):
     def list(self):
         return list(self.keys())
 
+
 MongoDBStoreV3.__doc__ = MongoDBStore.__doc__
 
 
@@ -3164,6 +3167,7 @@ class DBMStoreV3(DBMStore, StoreV3):
 
     def list(self):
         return list(self.keys())
+
 
 DBMStoreV3.__doc__ = DBMStore.__doc__
 
@@ -3173,6 +3177,7 @@ class LMDBStoreV3(LMDBStore, StoreV3):
     def list(self):
         return list(self.keys())
 
+
 LMDBStoreV3.__doc__ = LMDBStore.__doc__
 
 
@@ -3180,6 +3185,7 @@ class SQLiteStoreV3(SQLiteStore, StoreV3):
 
     def list(self):
         return list(self.keys())
+
 
 SQLiteStoreV3.__doc__ = SQLiteStore.__doc__
 
@@ -3199,6 +3205,7 @@ class LRUStoreCacheV3(LRUStoreCache, StoreV3):
 
     def list(self):
         return list(self.keys())
+
 
 LRUStoreCacheV3.__doc__ = LRUStoreCache.__doc__
 
@@ -3267,4 +3274,3 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w",
             # add default zarr.json metadata
             store['zarr.json'] = store._metadata_class.encode_hierarchy_metadata(None)
     return store
-

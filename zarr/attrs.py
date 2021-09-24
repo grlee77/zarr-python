@@ -1,7 +1,7 @@
 from collections.abc import MutableMapping
 
 from zarr._storage.store import Store, StoreV3
-from zarr.util import json_dumps, json_loads
+from zarr.util import json_dumps
 
 
 class Attributes(MutableMapping):

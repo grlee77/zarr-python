@@ -13,7 +13,6 @@ from zarr.errors import (
     GroupNotFoundError,
     ReadOnlyError,
 )
-from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (
     _get_hierarchy_metadata,
     _prefix_to_group_key,
@@ -28,7 +27,6 @@ from zarr.storage import (
     normalize_store_arg,
     rename,
     rmdir,
-    Store,
 )
 from zarr.util import (
     InfoReporter,
@@ -1196,7 +1194,8 @@ class Group(MutableMapping):
         if not (contains_array(self._store, source) or
                 contains_group(self._store, source, explicit_only=False)):
             raise ValueError('The source, "%s", does not exist.' % source)
-        if contains_array(self._store, dest) or contains_group(self._store, dest, explicit_only=False):
+        if (contains_array(self._store, dest) or
+                contains_group(self._store, dest, explicit_only=False)):
             raise ValueError('The dest, "%s", already exists.' % dest)
 
         # Ensure groups needed for `dest` exist.

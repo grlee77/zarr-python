@@ -575,7 +575,6 @@ def test_create(zarr_version):
 @pytest.mark.parametrize('zarr_version', [None, 2, 3])
 def test_compression_args(zarr_version):
     kwargs = _init_creation_kwargs(zarr_version)
-    expected_zarr_version = 2 if zarr_version is None else zarr_version
 
     with warnings.catch_warnings():
         warnings.simplefilter("default")
@@ -613,7 +612,6 @@ def test_create_read_only(zarr_version):
     # https://github.com/alimanfoo/zarr/issues/151
 
     kwargs = _init_creation_kwargs(zarr_version)
-    expected_zarr_version = 2 if zarr_version is None else zarr_version
 
     # create an array initially read-only, then enable writing
     z = create(100, read_only=True, **kwargs)

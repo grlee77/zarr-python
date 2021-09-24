@@ -26,7 +26,6 @@ from zarr.storage import (
     DirectoryStore,
     FSStore,
     KVStore,
-    KVStoreV3,
     LMDBStore,
     LRUStoreCache,
     NestedDirectoryStore,

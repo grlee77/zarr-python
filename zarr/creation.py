@@ -1,9 +1,7 @@
-import os
 from warnings import warn
 
 import numpy as np
 from numcodecs.registry import codec_registry
-from collections.abc import MutableMapping
 
 from zarr.core import Array
 from zarr.errors import (
@@ -11,10 +9,8 @@ from zarr.errors import (
     ContainsArrayError,
     ContainsGroupError,
 )
-from zarr.storage import (DirectoryStore, ZipStore, KVStore, contains_array,
-                          contains_group, default_compressor, init_array,
-                          normalize_storage_path, normalize_store_arg,
-                          FSStore, Store, StoreV3, KVStoreV3, DirectoryStoreV3)
+from zarr.storage import (contains_array, contains_group, default_compressor, init_array,
+                          normalize_storage_path, normalize_store_arg)
 from zarr.util import normalize_dimension_separator
 
 

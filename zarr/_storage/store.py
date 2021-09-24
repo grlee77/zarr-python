@@ -1,5 +1,8 @@
+import json
+import sys
 from collections.abc import MutableMapping
-from typing import Optional, Union, List, Tuple, Dict, Any
+from string import ascii_letters, digits
+from typing import Optional, List
 
 from zarr.meta import Metadata2, Metadata3, _default_entry_point_metadata_v3
 from zarr.util import normalize_storage_path
@@ -126,7 +129,6 @@ class Store(MutableMapping):
         )
 
 
-
 class StoreV3(Store):
     _store_version = 3
     _metadata_class = Metadata3
@@ -226,7 +228,8 @@ class StoreV3(Store):
                     "attributes",
                 }
                 current = set(v.keys())
-                current = current - {'dimension_separator'}  # TODO: ignore possible extra dimension_separator entry in .array
+                # TODO: ignore possible extra dimension_separator entry in .array
+                current = current - {'dimension_separator'}
                 # ets do some conversions.
                 assert current == expected, "{} extra, {} missing in {}".format(
                     current - expected, expected - current, v
@@ -245,8 +248,8 @@ class StoreV3(Store):
     def erase(self, key):
         self.__delitem__(key)
 
-    #def erase(self, key):
-    #    del self._mutable_mapping[key]
+    # def erase(self, key):
+    #     del self._mutable_mapping[key]
 
     def erase_prefix(self, prefix):
         assert prefix.endswith("/")
@@ -281,7 +284,6 @@ class StoreV3(Store):
                 prefixes.append(prefix + trail.split("/", maxsplit=1)[0] + "/")
         return keys, list(set(prefixes))
 
-
     def list(self):
         if hasattr(self, 'keys'):
             return list(self.keys())
@@ -301,9 +303,9 @@ class StoreV3(Store):
         return keys + prefixes
 
     # TODO: this was in Matthias's branch, but may want to just keep __contains__ only
-    #def contains(self, key):
-    #    assert key.startswith(("meta/", "data/")), "Got {}".format(key)
-    #    return key in self.list()
+    # def contains(self, key):
+    #     assert key.startswith(("meta/", "data/")), "Got {}".format(key)
+    #     return key in self.list()
 
     def __contains__(self, key):
         # TODO: re-enable this check?
@@ -318,8 +320,8 @@ class StoreV3(Store):
         """Remove all items from store."""
         self.erase_prefix("/")
 
-    #def __eq__(self, other):
-    #    return type(other) == type(self) and self.path == other.path
+    # def __eq__(self, other):
+    #     return type(other) == type(self) and self.path == other.path
 
     def __eq__(self, other):
         from zarr.storage import KVStoreV3  # avoid circular import

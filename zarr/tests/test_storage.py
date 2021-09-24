@@ -816,8 +816,6 @@ class StoreV3Tests(StoreTests):
         # Missing MUST be assumed to be "/"
         assert meta.get('dimension_separator', "/") is want_dim_sep
         assert meta['chunk_grid']['separator'] is want_dim_sep
-
-
         store.close()
 
     def _test_init_array_overwrite(self, order):
@@ -826,7 +824,7 @@ class StoreV3Tests(StoreTests):
 
         if store._store_version < 3:
             path = None
-            _array_meta_key = array_meta_key
+            mkey = array_meta_key
         else:
             path = 'arr1'  # no default, have to specify for v3
             mkey = 'meta/root/' + path + '.array.json'
@@ -869,7 +867,7 @@ class StoreV3Tests(StoreTests):
             else:
                 raise ValueError(
                     "unexpected store version: {store._store_version}"
-            )
+                )
         store.close()
 
     def test_init_array_path(self):
@@ -1067,7 +1065,7 @@ class StoreV3Tests(StoreTests):
             assert group_key in store
             # should have been overwritten
             meta = store._metadata_class.decode_group_metadata(store[group_key])
-            #assert ZARR_FORMAT == meta['zarr_format']
+            # assert ZARR_FORMAT == meta['zarr_format']
             assert meta == {'attributes': {}}
 
         store.close()
@@ -1080,7 +1078,6 @@ class StoreV3Tests(StoreTests):
     # noinspection PyStatementEffect
     def test_hierarchy(self):
         pytest.skip("TODO: hierarchy tests appropriate for v3")
-
 
     def test_getsize(self):
         pytest.skip("TODO: determine getsize behavior for v3")
@@ -1664,7 +1661,7 @@ class TestNestedDirectoryStoreV3(TestNestedDirectoryStore,
         assert (1000,) == meta['shape']
         assert (100,) == meta['chunk_grid']['chunk_shape']
         assert np.dtype(None) == meta['data_type']
-        #assert meta['dimension_separator'] == "/"
+        # assert meta['dimension_separator'] == "/"
         assert meta['chunk_grid']['separator'] == "/"
 
 
@@ -2261,6 +2258,7 @@ class TestSQLiteStore(StoreTests):
         store.rmdir('a')
         assert 'a_b' in store
 
+
 class TestSQLiteStoreV3(TestSQLiteStore, StoreV3Tests):
 
     def create_store(self, **kwargs):
@@ -2269,6 +2267,7 @@ class TestSQLiteStoreV3(TestSQLiteStore, StoreV3Tests):
         atexit.register(atexit_rmtree, path)
         store = SQLiteStoreV3(path, **kwargs)
         return store
+
 
 class TestSQLiteStoreInMemory(TestSQLiteStore):
 

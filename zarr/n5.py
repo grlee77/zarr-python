@@ -953,4 +953,5 @@ class N5StoreV3(N5Store, NestedDirectoryStoreV3):
             self.path == other.path
         )
 
+
 N5StoreV3.__doc__ = N5Store.__doc__

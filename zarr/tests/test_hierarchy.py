@@ -22,7 +22,6 @@ from zarr.attrs import Attributes
 from zarr.core import Array
 from zarr.creation import open_array
 from zarr.hierarchy import Group, group, open_group
-from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (ABSStore, DBMStore, KVStore, DirectoryStore, FSStore,
                           LMDBStore, LRUStoreCache, MemoryStore,
                           NestedDirectoryStore, SQLiteStore, ZipStore,
@@ -485,9 +484,6 @@ class TestGroup(unittest.TestCase):
         d2 = g1.create_dataset('foo/baz', shape=3000, chunks=300)
         d2[:] = np.arange(3000)
 
-        #if g1._version == 3:
-        #    pytest.skip("TODO: fix for V3")
-
         # test __getitem__
         assert isinstance(g1['foo'], Group)
         assert isinstance(g1['foo']['bar'], Group)
@@ -566,7 +562,7 @@ class TestGroup(unittest.TestCase):
         values = list(g1.values())
         if g1._version == 3:
             # v3 are not automatically sorted by key
-            items, values = zip(*sorted(zip(items, values), key=lambda x:x[0]))
+            items, values = zip(*sorted(zip(items, values), key=lambda x: x[0]))
         assert 'a' == items[0][0]
         assert g1['a'] == items[0][1]
         assert g1['a'] == values[0]
@@ -578,7 +574,7 @@ class TestGroup(unittest.TestCase):
         values = list(g1['foo'].values())
         if g1._version == 3:
             # v3 are not automatically sorted by key
-            items, values = zip(*sorted(zip(items, values), key=lambda x:x[0]))
+            items, values = zip(*sorted(zip(items, values), key=lambda x: x[0]))
         assert 'bar' == items[0][0]
         assert g1['foo']['bar'] == items[0][1]
         assert g1['foo']['bar'] == values[0]
@@ -1086,6 +1082,7 @@ class TestGroupV3(TestGroup, unittest.TestCase):
             Group(store, path=path, chunk_store=chunk_store)
         store.close()
 
+
 class TestGroupWithMemoryStore(TestGroup):
 
     @staticmethod
@@ -1479,6 +1476,7 @@ def test_group():
     assert isinstance(g, Group)
     assert store is g.store
 
+
 # TODO: run test_open_group for v3 spec
 
 def test_open_group():
@@ -1542,6 +1540,7 @@ def test_open_group():
     assert isinstance(g, Group)
     assert 'foo/bar' == g.path
 
+
 # TODO: run test_group_completions for v3 spec
 
 def test_group_completions():
@@ -1571,6 +1570,7 @@ def test_group_completions():
     assert 'zzz' in d
     assert '123' not in d  # not valid identifier
     assert '456' not in d  # not valid identifier
+
 
 # TODO: run test_group_key_completions for v3 spec
 
@@ -1647,6 +1647,7 @@ def _check_tree(g, expect_bytes, expect_text):
         # noinspection PyProtectedMember
         widget = g.tree()._ipython_display_()
         isinstance(widget, ipytree.Tree)
+
 
 # TODO: run test_tree for v3 spec
 
