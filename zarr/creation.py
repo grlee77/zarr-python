@@ -127,11 +127,12 @@ def create(shape, chunks=True, dtype=None, compressor='default',
     if dimension_separator is None:
         dimension_separator = getattr(store, "_dimension_separator", None)
     else:
-        if getattr(store, "_dimension_separator", None) != dimension_separator:
+        store_separator = getattr(store, "_dimension_separator", None)
+        if store_separator not in (None, dimension_separator):
             raise ValueError(
                 f"Specified dimension_separtor: {dimension_separator}"
                 f"conflicts with store's separator: "
-                f"{store._dimension_separator}")
+                f"{store_separator}")
     dimension_separator = normalize_dimension_separator(dimension_separator)
 
     # initialize array metadata
@@ -166,7 +167,7 @@ def normalize_store_arg(store, clobber=False, storage_options=None, mode="w") ->
             return DirectoryStore(store)
     else:
         if not isinstance(store, Store) and isinstance(store, MutableMapping):
-            store = KVStore(store)
+            store = Store._ensure_store(store)
         return store
 
 

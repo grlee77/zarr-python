@@ -27,7 +27,7 @@ class Store(MutableMapping):
 
     Stores can be used as context manager to make sure they close on exit.
 
-    .. added: 2.10.0
+    .. added: 2.11.0
 
     """
 
@@ -117,7 +117,7 @@ class Store(MutableMapping):
                 return KVStore(store)
 
         raise ValueError(
-            "Starting with Zarr 2.9.0, stores must be subclasses of Store, if "
+            "Starting with Zarr 2.11.0, stores must be subclasses of Store, if "
             "your store exposes the MutableMapping interface wrap it in "
             f"Zarr.storage.KVStore. Got {store}"
         )
