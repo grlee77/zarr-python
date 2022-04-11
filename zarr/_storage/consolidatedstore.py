@@ -1,6 +1,6 @@
 """This module contains storage classes for consolidated metadata storage"""
 
-from zarr._storage.kvstore import KVStore, KVStoreV3
+from zarr._storage.memorystore import KVStore, KVStoreV3
 from zarr._storage.store import Store, StoreLike, getsize, listdir
 from zarr._storage.store_v3 import meta_root, StoreV3
 from zarr.errors import MetadataError, ReadOnlyError

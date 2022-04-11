@@ -7,8 +7,70 @@ from numcodecs.compat import ensure_bytes
 
 from zarr._storage.store import _getsize, Path, Store
 from zarr._storage.store_v3 import (_get_metadata_suffix, _rename_metadata_v3, data_root,
-                                    meta_root, StoreV3)
+                                    meta_root, RmdirV3, StoreV3)
 from zarr.util import buffer_size, normalize_storage_path
+
+
+class KVStore(Store):
+    """
+    This provides a default implementation of a store interface around
+    a mutable mapping, to avoid having to test stores for presence of methods.
+
+    This, for most methods should just be a pass-through to the underlying KV
+    store which is likely to expose a MutableMapping interface,
+    """
+
+    def __init__(self, mutablemapping):
+        self._mutable_mapping = mutablemapping
+
+    def __getitem__(self, key):
+        return self._mutable_mapping[key]
+
+    def __setitem__(self, key, value):
+        self._mutable_mapping[key] = value
+
+    def __delitem__(self, key):
+        del self._mutable_mapping[key]
+
+    def get(self, key, default=None):
+        return self._mutable_mapping.get(key, default)
+
+    def values(self):
+        return self._mutable_mapping.values()
+
+    def __iter__(self):
+        return iter(self._mutable_mapping)
+
+    def __len__(self):
+        return len(self._mutable_mapping)
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: \n{repr(self._mutable_mapping)}\n at {hex(id(self))}>"
+
+    def __eq__(self, other):
+        if isinstance(other, KVStore):
+            return self._mutable_mapping == other._mutable_mapping
+        else:
+            return NotImplemented
+
+
+class KVStoreV3(RmdirV3, KVStore, StoreV3):
+
+    def list(self):
+        return list(self._mutable_mapping.keys())
+
+    def __setitem__(self, key, value):
+        self._validate_key(key)
+        super().__setitem__(key, value)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, KVStoreV3) and
+            self._mutable_mapping == other._mutable_mapping
+        )
+
+
+KVStoreV3.__doc__ = KVStore.__doc__
 
 
 def _dict_store_keys(d: Dict, prefix="", cls=dict):

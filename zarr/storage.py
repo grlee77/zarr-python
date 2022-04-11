@@ -36,10 +36,9 @@ from zarr._storage.directorystore import (atexit_rmtree, DirectoryStore,  # noqa
                                           NestedDirectoryStore, TempStore)
 from zarr._storage.dbmstore import DBMStore  # noqa: F401
 from zarr._storage.fsstore import FSStore  # noqa: F401
-from zarr._storage.kvstore import KVStore  # noqa: F401
 from zarr._storage.lmdbstore import LMDBStore  # noqa: F401
 from zarr._storage.lrustore import LRUStoreCache  # noqa: F401
-from zarr._storage.memorystore import DictStore, MemoryStore  # noqa: F401
+from zarr._storage.memorystore import DictStore, KVStore, MemoryStore  # noqa: F401
 from zarr._storage.mongodbstore import MongoDBStore  # noqa: F401
 from zarr._storage.redisstore import RedisStore  # noqa: F401
 from zarr._storage.sqlitestore import SQLiteStore  # noqa: F401

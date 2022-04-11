@@ -6,10 +6,9 @@ from zarr._storage.consolidatedstore import ConsolidatedMetadataStoreV3  # noqa:
 from zarr._storage.directorystore import DirectoryStoreV3  # noqa: F401
 from zarr._storage.dbmstore import DBMStoreV3  # noqa: F401
 from zarr._storage.fsstore import FSStoreV3  # noqa: F401
-from zarr._storage.kvstore import KVStoreV3  # noqa: F401
 from zarr._storage.lmdbstore import LMDBStoreV3  # noqa: F401
 from zarr._storage.lrustore import LRUStoreCacheV3  # noqa: F401
-from zarr._storage.memorystore import MemoryStoreV3  # noqa: F401
+from zarr._storage.memorystore import KVStoreV3, MemoryStoreV3  # noqa: F401
 from zarr._storage.mongodbstore import MongoDBStoreV3  # noqa: F401
 from zarr._storage.redisstore import RedisStoreV3  # noqa: F401
 from zarr._storage.sqlitestore import SQLiteStoreV3  # noqa: F401
