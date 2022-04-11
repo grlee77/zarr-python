@@ -18,7 +18,7 @@ except ImportError:  # pragma: no cover
 from numcodecs import Zlib
 from numpy.testing import assert_array_equal
 
-from zarr._storage.store import _get_metadata_suffix
+from zarr._storage.store_v3 import _get_metadata_suffix
 from zarr.attrs import Attributes
 from zarr.core import Array
 from zarr.creation import open_array

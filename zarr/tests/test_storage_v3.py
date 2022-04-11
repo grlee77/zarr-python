@@ -8,13 +8,13 @@ import numpy as np
 import pytest
 
 import zarr
-from zarr._storage.store import _get_hierarchy_metadata, v3_api_available
+from zarr._storage.store_v3 import _get_hierarchy_metadata, v3_api_available
 from zarr.meta import _default_entry_point_metadata_v3
 from zarr.storage import (atexit_rmglob, atexit_rmtree, data_root,
                           default_compressor, getsize, init_array, meta_root,
-                          normalize_store_arg)
+                          normalize_store_arg, KVStore)
 from zarr.storage_v3 import (ABSStoreV3, ConsolidatedMetadataStoreV3, DBMStoreV3,
-                             DirectoryStoreV3, FSStoreV3, KVStore, KVStoreV3,
+                             DirectoryStoreV3, FSStoreV3, KVStoreV3,
                              LMDBStoreV3, LRUStoreCacheV3, MemoryStoreV3,
                              MongoDBStoreV3, RedisStoreV3, SQLiteStoreV3, StoreV3,
                              ZipStoreV3)
@@ -524,3 +524,9 @@ def test_top_level_imports():
             assert hasattr(zarr, store_name)
         else:
             assert not hasattr(zarr, store_name)
+
+
+def test_get_hierarchy_metadata_v2():
+    # v2 stores do not have hierarchy metadata (i.e. zarr.json)
+    with pytest.raises(ValueError):
+        _get_hierarchy_metadata(KVStore(dict))

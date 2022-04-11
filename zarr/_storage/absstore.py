@@ -3,10 +3,12 @@
 import warnings
 from numcodecs.compat import ensure_bytes
 from zarr.util import normalize_storage_path
-from zarr._storage.store import _get_metadata_suffix, data_root, meta_root, Store, StoreV3
+from zarr._storage.store import Store
+from zarr._storage.store_v3 import _get_metadata_suffix, data_root, meta_root, StoreV3
 
 __doctest_requires__ = {
     ('ABSStore', 'ABSStore.*'): ['azure.storage.blob'],
+    ('ABSStoreV3', 'ABSStoreV3.*'): ['azure.storage.blob'],
 }
 
 

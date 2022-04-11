@@ -33,12 +33,12 @@ from zarr.indexing import (
     pop_fields,
 )
 from zarr.storage import (
-    _get_hierarchy_metadata,
     _prefix_to_array_key,
     getsize,
     listdir,
     normalize_store_arg,
 )
+from zarr._storage.store_v3 import _get_hierarchy_metadata
 from zarr.util import (
     all_equal,
     InfoReporter,

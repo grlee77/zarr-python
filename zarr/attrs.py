@@ -1,6 +1,7 @@
 from collections.abc import MutableMapping
 
-from zarr._storage.store import Store, StoreV3
+from zarr._storage.store import Store
+from zarr._storage.store_v3 import StoreV3
 from zarr.util import json_dumps
 
 

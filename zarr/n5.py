@@ -10,9 +10,10 @@ from numcodecs.abc import Codec
 from numcodecs.compat import ndarray_copy
 from numcodecs.registry import get_codec, register_codec
 
+from ._storage.store import _prog_ckey, _prog_number
 from .meta import ZARR_FORMAT, json_dumps, json_loads
 from .storage import FSStore
-from .storage import NestedDirectoryStore, _prog_ckey, _prog_number, normalize_storage_path
+from .storage import NestedDirectoryStore, normalize_storage_path
 from .storage import array_meta_key as zarr_array_meta_key
 from .storage import attrs_key as zarr_attrs_key
 from .storage import group_meta_key as zarr_group_meta_key

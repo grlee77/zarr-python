@@ -18,7 +18,6 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 from numcodecs.compat import ensure_bytes
 
 import zarr
-from zarr._storage.store import _get_hierarchy_metadata
 from zarr.codecs import BZ2, AsType, Blosc, Zlib
 from zarr.convenience import consolidate_metadata
 from zarr.errors import ContainsArrayError, ContainsGroupError, MetadataError
@@ -2461,12 +2460,6 @@ def test_fill_value_change():
     assert a[0, 0] == 1
 
     assert json.loads(a.store[".zarray"])["fill_value"] == 1
-
-
-def test_get_hierarchy_metadata_v2():
-    # v2 stores do not have hierarchy metadata (i.e. zarr.json)
-    with pytest.raises(ValueError):
-        _get_hierarchy_metadata(KVStore(dict))
 
 
 def test_normalize_store_arg(tmpdir):

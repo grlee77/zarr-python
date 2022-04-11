@@ -3,7 +3,8 @@ from itertools import islice
 
 import numpy as np
 
-from zarr._storage.store import _get_metadata_suffix, data_root, meta_root, DEFAULT_ZARR_VERSION
+from zarr._storage.store import DEFAULT_ZARR_VERSION
+from zarr._storage.store_v3 import _get_hierarchy_metadata, _get_metadata_suffix, data_root, meta_root
 from zarr.attrs import Attributes
 from zarr.core import Array
 from zarr.creation import (array, create, empty, empty_like, full, full_like,
@@ -15,7 +16,6 @@ from zarr.errors import (
     ReadOnlyError,
 )
 from zarr.storage import (
-    _get_hierarchy_metadata,
     _prefix_to_group_key,
     BaseStore,
     MemoryStore,
@@ -30,6 +30,7 @@ from zarr.storage import (
     rmdir,
 )
 from zarr.storage_v3 import MemoryStoreV3
+
 from zarr.util import (
     InfoReporter,
     TreeViewer,

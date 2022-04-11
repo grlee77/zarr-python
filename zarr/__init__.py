@@ -10,7 +10,7 @@ from zarr.creation import (array, create, empty, empty_like, full, full_like,
 from zarr.errors import CopyError, MetadataError
 from zarr.hierarchy import Group, group, open_group
 from zarr.n5 import N5Store, N5FSStore
-from zarr._storage.store import v3_api_available
+from zarr._storage.store_v3 import v3_api_available
 from zarr.storage import (ABSStore, DBMStore, DictStore, DirectoryStore,
                           LMDBStore, LRUStoreCache, MemoryStore, MongoDBStore,
                           NestedDirectoryStore, RedisStore, SQLiteStore,
